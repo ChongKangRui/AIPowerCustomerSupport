@@ -1,0 +1,184 @@
+// Prisma schema — see implementation-plan.md Phase 0.
+// Docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum Role {
+  ADMIN
+  AGENT
+}
+
+/// Open -> Resolved -> Closed. Closed is terminal (project-scope.md).
+enum TicketStatus {
+  OPEN
+  RESOLVED
+  CLOSED
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum MessageAuthorType {
+  CUSTOMER
+  AGENT
+  AI
+  SYSTEM
+}
+
+// ---------------------------------------------------------------------------
+// Auth.js models (User is extended with app-specific fields)
+// ---------------------------------------------------------------------------
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+
+  /// bcrypt hash — credentials login for this single-org demo
+  passwordHash String?
+  role         Role   @default(AGENT)
+
+  accounts Account[]
+  sessions Session[]
+
+  assignedTickets Ticket[]        @relation("AssignedAgent")
+  authoredMessages TicketMessage[] @relation("MessageAuthor")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ---------------------------------------------------------------------------
+// Support domain
+// ---------------------------------------------------------------------------
+
+model Ticket {
+  id      String       @id @default(cuid())
+  subject String
+  status  TicketStatus @default(OPEN)
+
+  customerEmail String
+  customerName  String?
+
+  /// Gmail thread this ticket mirrors — the key inbound messages are matched on
+  gmailThreadId String @unique
+
+  assignedToId String?
+  assignedTo   User?   @relation("AssignedAgent", fields: [assignedToId], references: [id], onDelete: SetNull)
+
+  /// True when Path A (AI auto-resolve) closed this out with no human involved
+  resolvedByAi Boolean @default(false)
+
+  // AI summarization output (Phase 4)
+  summary   String?
+  category  String?
+  sentiment String?
+
+  messages TicketMessage[]
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  resolvedAt DateTime?
+  closedAt   DateTime?
+
+  @@index([status])
+  @@index([assignedToId])
+  @@index([customerEmail])
+  @@index([createdAt])
+}
+
+model TicketMessage {
+  id       String @id @default(cuid())
+  ticketId String
+  ticket   Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  direction  MessageDirection
+  authorType MessageAuthorType
+
+  /// Set when authorType is AGENT
+  authorId String?
+  author   User?   @relation("MessageAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  body String
+
+  /// Gmail message id — unique so replayed polls can't double-insert
+  gmailMessageId String  @unique
+  /// Message-Id header, used to build In-Reply-To/References on outbound replies
+  rfcMessageId   String?
+  inReplyTo      String?
+
+  createdAt DateTime @default(now())
+
+  @@index([ticketId, createdAt])
+}
+
+model KnowledgeBaseEntry {
+  id       String  @id @default(cuid())
+  title    String
+  content  String
+  category String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// Single-row table holding the last Gmail historyId processed by the poller.
+model EmailSyncState {
+  id            String   @id @default("gmail")
+  lastHistoryId String
+  lastPolledAt  DateTime @updatedAt
+}
