@@ -42,13 +42,13 @@ Goal: real emails become tickets in the DB, and the app can reply back into the 
 
 ### Google Cloud / OAuth setup (one-time, manual, in Google Cloud Console)
 - [x] Create a dedicated Gmail account for the demo 
-- [ ] Create a Google Cloud project (e.g. `ai-support-demo`)
-- [ ] Enable the Gmail API (APIs & Services → Library)
-- [ ] Configure OAuth consent screen: External user type, app name/support email, scope `gmail.modify`, add the demo Gmail account as a test user, leave app in **Testing** mode
-- [ ] Create OAuth client ID (Web application type), temporarily set redirect URI to `https://developers.google.com/oauthplayground`
-- [ ] Get a refresh token via OAuth Playground: use your own client ID/secret, authorize with the demo Gmail account, exchange for tokens, copy the refresh token
-- [ ] Store `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`, `GMAIL_USER` in `.env` and Vercel project settings
-- [ ] Generate and store `CRON_SECRET` (random string) for securing the poll endpoint
+- [x] Create a Google Cloud project (e.g. `ai-support-demo`)
+- [x] Enable the Gmail API (APIs & Services → Library)
+- [x] Configure OAuth consent screen: External user type, app name/support email, scope `gmail.modify`, add the demo Gmail account as a test user, leave app in **Testing** mode
+- [x] Create OAuth client ID (Web application type), temporarily set redirect URI to `https://developers.google.com/oauthplayground`
+- [x] Get a refresh token via OAuth Playground: use your own client ID/secret, authorize with the demo Gmail account, exchange for tokens, copy the refresh token
+- [x] Store `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`, `GMAIL_USER` in `.env` and Vercel project settings
+- [x] Generate and store `CRON_SECRET` (random string) for securing the poll endpoint
 
 ### Code
 - [x] `npm install googleapis`

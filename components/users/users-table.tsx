@@ -19,20 +19,20 @@ function RoleBadge({ role }: { role: UserListItem["role"] }) {
 
 export function UsersTable({ users }: { users: UserListItem[] }) {
   return (
-    <Table>
+    <Table className="table-fixed">
       <TableHeader>
         <TableRow>
-          <TableHead>Name</TableHead>
-          <TableHead>Email</TableHead>
-          <TableHead>Role</TableHead>
-          <TableHead>Joined</TableHead>
+          <TableHead className="w-[28%]">Name</TableHead>
+          <TableHead className="w-[34%]">Email</TableHead>
+          <TableHead className="w-[19%]">Role</TableHead>
+          <TableHead className="w-[19%]">Joined</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {users.map((user) => (
           <TableRow key={user.id}>
-            <TableCell className="font-medium">{user.name ?? "—"}</TableCell>
-            <TableCell className="text-muted-foreground">{user.email}</TableCell>
+            <TableCell className="truncate font-medium">{user.name ?? "—"}</TableCell>
+            <TableCell className="truncate text-muted-foreground">{user.email}</TableCell>
             <TableCell>
               <RoleBadge role={user.role} />
             </TableCell>

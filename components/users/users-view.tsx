@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { useUsers } from "@/hooks/use-users";
 import { UsersTable } from "@/components/users/users-table";
+import { UsersTableSkeleton } from "@/components/users/users-table-skeleton";
 
 type RoleFilter = "ALL" | "ADMIN" | "AGENT";
 
@@ -56,7 +57,7 @@ export function UsersView() {
       </div>
 
       {isLoading ? (
-        <p className="text-sm text-muted-foreground">Loading users…</p>
+        <UsersTableSkeleton />
       ) : isError ? (
         <p className="text-sm text-destructive">Failed to load users.</p>
       ) : filteredUsers.length === 0 ? (
