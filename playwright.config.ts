@@ -14,7 +14,13 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
-  reporter: "html",
+
+  // Both default to the project root otherwise — keeping generated e2e
+  // output (traces, screenshots, error-context.md, the HTML report) nested
+  // under e2e/ instead of scattered at the repo root. .gitignore covers
+  // both paths.
+  outputDir: "./e2e/test-results",
+  reporter: [["html", { outputFolder: "./e2e/playwright-report" }]],
 
   // Points a dedicated test database at the current migrations + seed data
   // before any test runs — see e2e/global-setup.ts and lib/database-url.ts.

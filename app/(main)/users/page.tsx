@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { auth } from "@/auth";
+import { UsersView } from "@/components/users/users-view";
 
 // Admin-only page. proxy.ts only gates on cookie presence (see its own
 // comment on why), so the real, DB-verified role check has to happen here —
@@ -12,9 +13,12 @@ export default async function UsersPage() {
     redirect("/");
   }
 
+  
+
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6">
+    <div className="flex flex-1 flex-col gap-4 p-6">
       <h1 className="text-2xl font-semibold">Users</h1>
+      <UsersView />
     </div>
   );
 }

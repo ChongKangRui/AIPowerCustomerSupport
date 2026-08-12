@@ -31,7 +31,7 @@ Goal: Admin/Agent access control and admin-only user management, building on Pha
 
 - [ ] Route/middleware protection: admin-only pages (`/admin/*`) vs agent pages
 - [ ] Server Action/query scoping: agents only see tickets assigned to them; admins see all
-- [ ] Admin UI: list users, create/invite an agent, edit role
+- [x] Admin UI: list users (`/users` page + `GET /api/users`, admin-only, client-side search/role filter — see `components/users/users-view.tsx`) — create/invite an agent and edit role still pending
 - [x] Rate limiting / brute-force protection on `/api/login`: `rate-limiter-flexible`'s `RateLimiterPrisma` (`lib/rate-limiter.ts`), backed by the existing Neon Postgres DB via a new `RateLimiterFlexible` model — no Redis needed. Two limiters (mirrors the library's own documented login-protection recipe): 5 consecutive fails per email+IP → 15 min block; 50 fails per IP per day → 24h block. Wired into `app/api/login/route.ts` (pre-check via `get()`, `consume()` on failure, `delete()` on success so a legitimate user's later success clears their count). See `tech-stack.md` → Auth for the `tableName` gotcha this surfaced.
 - [x] Confirm `middleware.ts` (already present in repo) is repurposed for this route protection rather than left over from scaffolding — replaced by `proxy.ts` (Next.js 16 renamed Middleware to Proxy). Currently an optimistic session-cookie check only; role enforcement still to be added in the pages/Server Actions.
 

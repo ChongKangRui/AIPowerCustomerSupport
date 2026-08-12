@@ -13,9 +13,9 @@
 # testing
 /coverage
 
-# playwright
-/test-results/
-/playwright-report/
+# playwright — nested under e2e/ per playwright.config.ts's outputDir/reporter
+/e2e/test-results/
+/e2e/playwright-report/
 /playwright/.cache/
 /blob-report/
 # storageState snapshots from e2e/auth.setup.ts — live session cookies for
