@@ -38,6 +38,7 @@ This app has **no `data-testid` attributes** anywhere yet. The existing login fo
 2. Fall back to `getByText`/`getByPlaceholder` for content without a clear role.
 3. Only reach for `data-testid` when a role/label/text query is genuinely ambiguous or unstable (e.g. a repeated row in a table) — and if you add one, add it to the component source in the same change, don't invent a selector that doesn't exist in the DOM.
 4. Never use raw CSS class or nth-child selectors — they break on the next Tailwind/shadcn refactor.
+5. **`page.getByRole("alert")` is unsafe unscoped on this app, on every page, not just `/login`.** Next.js App Router injects its own empty route announcer (`<div role="alert" aria-live="assertive" id="__next-route-announcer__">`) near the app root on every render, for screen-reader route-change announcements — it's not rendered by any component in this codebase, so you won't find it by reading `login-form.tsx`/`field.tsx`. Any bare `page.getByRole("alert")` matches both it and the real form error, and Playwright's strict mode fails with a 2-element collision. Always scope through the containing element instead, e.g. `page.locator("form").getByRole("alert")` — never query `page.getByRole("alert")` directly.
 
 ## Test structure conventions
 

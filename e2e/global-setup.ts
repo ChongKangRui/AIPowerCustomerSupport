@@ -54,12 +54,14 @@ export default async function globalSetup() {
 
   const env = { ...process.env, DATABASE_URL: resolveTestDatabaseUrl() };
 
-  // Drops and recreates the schema, reapplies every migration, then reseeds
-  // (prisma.config.ts wires `migrate reset`'s seed step to prisma/seed.ts) —
-  // deterministic starting state for every test run. --skip-generate: the
-  // client is already generated (postinstall), no schema-shape change here.
-  execSync("npx prisma migrate reset --force --skip-generate", {
-    stdio: "inherit",
-    env,
-  });
+  // Drops and recreates the schema, then reapplies every migration. Prisma 7
+  // no longer runs `generate` or the configured seed script automatically as
+  // part of `migrate reset` (both used to be implicit in older Prisma CLIs —
+  // --skip-generate used to opt out of the former and is no longer a valid
+  // flag at all, which is why it's gone from the call below). The client is
+  // already generated (postinstall), so nothing to do there, but seeding is
+  // no longer implicit — run it explicitly right after so the test DB still
+  // ends up in the same deterministic seeded state every run.
+  execSync("npx prisma migrate reset --force", { stdio: "inherit", env });
+  execSync("npx prisma db seed", { stdio: "inherit", env });
 }

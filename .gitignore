@@ -18,9 +18,13 @@
 /playwright-report/
 /playwright/.cache/
 /blob-report/
+# storageState snapshots from e2e/auth.setup.ts — live session cookies for
+# the test database, not secrets to share/commit.
+/e2e/.auth/
 
 # next.js
 /.next/
+/.next-test/
 /out/
 
 # production

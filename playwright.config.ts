@@ -25,10 +25,33 @@ export default defineConfig({
     trace: "on-first-retry",
   },
 
+  // Playwright's default expect() timeout (5s) is tuned for a production
+  // server. `next dev` compiles each page on-demand the first time it's
+  // actually requested, and a cold compile under this suite's parallel
+  // workers can take longer than that — a test that's simply first to hit
+  // an uncompiled route (or hits one while other workers are also
+  // compiling/rendering) can time out waiting for a redirect that's still
+  // legitimately in flight, then pass cleanly on a rerun once Next has
+  // cached that route. Not a fix for a real bug — just enough headroom for
+  // dev-mode compilation latency that a production build wouldn't have.
+  expect: {
+    timeout: 10 * 1000,
+  },
+
   projects: [
+    {
+      // Logs in once per role (e2e/auth.setup.ts) and saves storageState to
+      // e2e/.auth/*.json, so specs that just need to *start out*
+      // authenticated (not test the login flow itself) can load it via
+      // `test.use({ storageState })` instead of re-driving the UI login in
+      // every test. See e2e/auth.setup.ts for the shared-state caveat.
+      name: "setup",
+      testMatch: /.*\.setup\.ts/,
+    },
     {
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
+      dependencies: ["setup"],
     },
   ],
 
@@ -47,6 +70,11 @@ export default defineConfig({
       DATABASE_URL: resolveTestDatabaseUrl(),
       PORT,
       AUTH_URL: baseURL,
+      // Own build/lock directory (see next.config.ts) — Next 16 locks
+      // `<distDir>/lock` per directory, not per port, so without this a
+      // `npm run dev` already running would block this webServer even
+      // though it's on a different port.
+      NEXT_DIST_DIR: ".next-test",
     },
   },
 });
