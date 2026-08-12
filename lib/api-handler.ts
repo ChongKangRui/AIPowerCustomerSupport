@@ -55,6 +55,16 @@ export class ConflictError extends HttpError {
   }
 }
 
+export class TooManyRequestsError extends HttpError {
+  /** Seconds the client should wait before retrying — sent as `Retry-After`. */
+  retryAfterSeconds?: number;
+
+  constructor(message = "Too Many Requests", retryAfterSeconds?: number) {
+    super(429, message);
+    this.retryAfterSeconds = retryAfterSeconds;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // withApiHandler
 // ---------------------------------------------------------------------------
@@ -138,9 +148,13 @@ export function withApiHandler<Context = { params?: Promise<Record<string, strin
           { status: error.status, durationMs, err: error },
           "Request failed"
         );
+        const headers: Record<string, string> = { "x-request-id": requestId };
+        if (error instanceof TooManyRequestsError && error.retryAfterSeconds) {
+          headers["Retry-After"] = String(error.retryAfterSeconds);
+        }
         return NextResponse.json(
           { error: error.message },
-          { status: error.status, headers: { "x-request-id": requestId } }
+          { status: error.status, headers }
         );
       }
 

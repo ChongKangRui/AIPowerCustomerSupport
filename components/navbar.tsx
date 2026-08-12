@@ -37,9 +37,20 @@ export function Navbar() {
 
   return (
     <header className="flex items-center justify-between border-b border-border px-4 py-2.5">
-      <Link href="/" className="font-semibold">
-        AI Customer Support
-      </Link>
+      <div className="flex items-center gap-6">
+        <Link href="/" className="font-semibold">
+          AI Customer Support
+        </Link>
+
+        {user?.role === "ADMIN" && (
+          <Link
+            href="/users"
+            className="text-sm font-medium text-muted-foreground hover:text-foreground"
+          >
+            Users
+          </Link>
+        )}
+      </div>
 
       <div className="flex items-center gap-2">
         {isLoading ? null : user ? (

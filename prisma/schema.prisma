@@ -182,3 +182,13 @@ model EmailSyncState {
   lastHistoryId String
   lastPolledAt  DateTime @updatedAt
 }
+
+/// Storage table for `rate-limiter-flexible`'s RateLimiterPrisma (lib/rate-limiter.ts).
+/// Shape (key/points/expire) and model name are fixed by that library — see
+/// its Prisma driver docs. Backs login brute-force protection on
+/// /api/login; no Redis needed since it reuses this Postgres connection.
+model RateLimiterFlexible {
+  key    String    @id
+  points Int
+  expire DateTime?
+}
