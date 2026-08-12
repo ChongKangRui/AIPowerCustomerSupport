@@ -18,22 +18,16 @@ import { apiClient } from "@/lib/api-client";
 import { safeRedirectTarget } from "@/lib/safe-redirect";
 import { loginSchema, type LoginInput } from "@/models/auth.model";
 
-// Demo-account autofill. Values come from prisma/seed.ts via NEXT_PUBLIC_
-// copies (see .env.example) so the buttons always match what was seeded.
-const DEMO_ACCOUNTS = [
-  {
-    label: "Demo agent",
-    email: process.env.NEXT_PUBLIC_SEED_AGENT_EMAIL ?? "agent@example.com",
-    password: process.env.NEXT_PUBLIC_SEED_AGENT_PASSWORD ?? "agent1234",
-  },
-  {
-    label: "Demo admin",
-    email: process.env.NEXT_PUBLIC_SEED_ADMIN_EMAIL ?? "admin@example.com",
-    password: process.env.NEXT_PUBLIC_SEED_ADMIN_PASSWORD ?? "admin1234",
-  },
-] as const;
+type DemoAccount = {
+  label: string;
+  email: string;
+  password: string;
+};
 
-export function LoginForm() {
+// Demo-account autofill. Values are passed down from app/login/page.tsx (a
+// Server Component reading prisma/seed.ts's SEED_* vars directly) so the
+// buttons always match what was seeded, with no NEXT_PUBLIC_ copies needed.
+export function LoginForm({ demoAccounts }: { demoAccounts: readonly DemoAccount[] }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
@@ -58,7 +52,7 @@ export function LoginForm() {
     loginMutation.mutate(values);
   }
 
-  function fillDemoAccount(account: (typeof DEMO_ACCOUNTS)[number]) {
+  function fillDemoAccount(account: DemoAccount) {
     form.setValue("email", account.email, { shouldValidate: true });
     form.setValue("password", account.password, { shouldValidate: true });
   }
@@ -127,7 +121,7 @@ export function LoginForm() {
 
          
           <div className="flex gap-2">
-            {DEMO_ACCOUNTS.map((account) => (
+            {demoAccounts.map((account) => (
               <Button
                 key={account.label}
                 type="button"

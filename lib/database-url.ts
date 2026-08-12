@@ -17,16 +17,15 @@
  * entirely: both prisma.config.ts and lib/prisma.ts call this function
  * instead of reading `process.env.DATABASE_URL` directly.
  */
-export function resolveDatabaseUrl(): string {
-  if (process.env.DATABASE_URL) {
-    return process.env.DATABASE_URL;
-  }
-
+// Builds a local Postgres connection string from the DB_HOST/DB_PORT/DB_USER/
+// DB_PASSWORD pieces, pointed at whichever `database` name is passed in.
+// Shared by resolveDatabaseUrl and resolveTestDatabaseUrl below so the
+// credential-handling (and its error message) only lives in one place.
+function buildLocalUrl(database: string): string {
   const host = process.env.DB_HOST ?? "localhost";
   const port = process.env.DB_PORT ?? "5432";
   const user = process.env.DB_USER ?? "postgres";
   const password = process.env.DB_PASSWORD;
-  const database = process.env.DB_NAME ?? "CustomerSupportDB";
 
   if (!password) {
     throw new Error(
@@ -38,4 +37,49 @@ export function resolveDatabaseUrl(): string {
   // encodeURIComponent so a password containing @, :, / etc. doesn't corrupt the URL.
   const credentials = `${encodeURIComponent(user)}:${encodeURIComponent(password)}`;
   return `postgresql://${credentials}@${host}:${port}/${database}`;
+}
+
+export function resolveDatabaseUrl(): string {
+  if (process.env.DATABASE_URL) {
+    return process.env.DATABASE_URL;
+  }
+
+  return buildLocalUrl(process.env.DB_NAME ?? "CustomerSupportDB");
+}
+
+/**
+ * Same resolution as resolveDatabaseUrl, but for the separate database
+ * Playwright e2e tests run against (see playwright.config.ts + e2e/global-setup.ts)
+ * so tests never touch dev/production data.
+ *
+ * - same precedence rule as `DATABASE_URL` in resolveDatabaseUrl.
+ * - built from the same local DB_HOST/DB_PORT/DB_USER/DB_PASSWORD
+ *   
+ */
+export function resolveTestDatabaseUrl(): string {
+  if (process.env.DATABASE_URL_TEST) {
+    return process.env.DATABASE_URL_TEST;
+  }
+
+  return buildLocalUrl(resolveTestDatabaseName());
+}
+
+/**
+ * The test database's name, for the one-time "does it exist yet" check in
+ * e2e/global-setup.ts. Returns null when `DATABASE_URL_TEST` is set directly —
+ * in that case we don't know (or need to know) the database name, and assume
+ * whatever it points to has already been provisioned.
+ */
+export function resolveTestDatabaseName(): string {
+  return `${process.env.DB_NAME ?? "CustomerSupportDB"}_test`;
+}
+
+/**
+ * Connection string for Postgres's default `postgres` maintenance database —
+ * used only to run `CREATE DATABASE` for the test database itself (you can't
+ * create a database while connected to it). Local pieces only; not meaningful
+ * when `DATABASE_URL_TEST` points at an already-provisioned cloud database.
+ */
+export function resolveMaintenanceDatabaseUrl(): string {
+  return buildLocalUrl("postgres");
 }

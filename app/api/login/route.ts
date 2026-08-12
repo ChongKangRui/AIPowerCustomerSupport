@@ -15,6 +15,7 @@ import {
   limiterSlowBruteByIp,
   MAX_CONSECUTIVE_FAILS_BY_EMAIL_AND_IP,
   MAX_WRONG_ATTEMPTS_BY_IP_PER_DAY,
+  RATE_LIMITING_ENABLED,
 } from "@/lib/rate-limiter";
 import { createUserSession } from "@/lib/session";
 import { loginSchema } from "@/models/auth.model";
@@ -51,10 +52,12 @@ export const POST = withApiHandler(async (request, _context, log) => {
   // or expire and reset.
   // each .get() get the non expire row, meaning if row have expire, 
   // null will be the return
-  const [emailIpRes, ipRes] = await Promise.all([
-    limiterConsecutiveFailsByEmailAndIp.get(emailIpKey),
-    limiterSlowBruteByIp.get(ip),
-  ]);
+  const [emailIpRes, ipRes] = RATE_LIMITING_ENABLED
+    ? await Promise.all([
+        limiterConsecutiveFailsByEmailAndIp.get(emailIpKey),
+        limiterSlowBruteByIp.get(ip),
+      ])
+    : [null, null];
 
   if (ipRes && ipRes.consumedPoints > MAX_WRONG_ATTEMPTS_BY_IP_PER_DAY) {
     log.warn({ email, ip }, "login blocked: too many failures from this IP");
@@ -87,20 +90,22 @@ export const POST = withApiHandler(async (request, _context, log) => {
     // consumed for every failure, existing user or not, so an attacker
     // can't distinguish the two by watching for a rate-limit side effect
     // either.
-    try {
-      await Promise.all([
-        limiterSlowBruteByIp.consume(ip),
-        limiterConsecutiveFailsByEmailAndIp.consume(emailIpKey),
-      ]);
-    } catch (rlRejected) {
-      if (rlRejected instanceof Error) throw rlRejected;
-      // This attempt itself just tipped a limiter over its limit — the
-      // rejection is a RateLimiterRes, not an Error, in that case.
-      log.warn({ email, ip }, "login failed: rate limit exceeded on this attempt");
-      throw new TooManyRequestsError(
-        "Too many attempts. Try again later.",
-        retryAfterSecondsFrom(rlRejected as RateLimiterRes)
-      );
+    if (RATE_LIMITING_ENABLED) {
+      try {
+        await Promise.all([
+          limiterSlowBruteByIp.consume(ip),
+          limiterConsecutiveFailsByEmailAndIp.consume(emailIpKey),
+        ]);
+      } catch (rlRejected) {
+        if (rlRejected instanceof Error) throw rlRejected;
+        // This attempt itself just tipped a limiter over its limit — the
+        // rejection is a RateLimiterRes, not an Error, in that case.
+        log.warn({ email, ip }, "login failed: rate limit exceeded on this attempt");
+        throw new TooManyRequestsError(
+          "Too many attempts. Try again later.",
+          retryAfterSecondsFrom(rlRejected as RateLimiterRes)
+        );
+      }
     }
 
     log.warn({ email }, "login failed");
@@ -110,7 +115,7 @@ export const POST = withApiHandler(async (request, _context, log) => {
   // Successful login — clear this email+IP's failure count so it doesn't
   // carry over and eventually block a legitimate user who just mistyped
   // their password a few times before getting it right.
-  if (emailIpRes && emailIpRes.consumedPoints > 0) {
+  if (RATE_LIMITING_ENABLED && emailIpRes && emailIpRes.consumedPoints > 0) {
     await limiterConsecutiveFailsByEmailAndIp.delete(emailIpKey);
   }
 

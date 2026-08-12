@@ -21,6 +21,7 @@ Goal: empty-but-deployed skeleton, DB connected, auth working, nothing product-s
 - [x] Add TanStack Query (`app/providers.tsx`) as the client-side data layer, with an SSR-safe `QueryClient` pattern
 - [x] Structured logging (Pino, `lib/logger.ts`) + shared `withApiHandler` Route Handler wrapper (`lib/api-handler.ts`) for consistent request logging/error responses across API routes; client-side `apiClient` (axios, `lib/api-client.ts`) unwraps those error responses
 - [x] `/api/health-check` route + `/health-check` page for a basic liveness check
+- [x] Playwright e2e setup (config + fixtures only, no specs yet): `playwright.config.ts` boots `next dev` on a separate port (3100) against a dedicated test database; `e2e/global-setup.ts` creates that database if needed and resets+reseeds it before every run via `prisma migrate reset`. See `tech-stack.md` → Testing for the DB isolation approach. `npm run test:e2e`.
 - [ ] Deploy skeleton to Vercel, confirm build + DB connection work end-to-end in production early (de-risks deployment issues later)
 
 ---
@@ -40,7 +41,7 @@ Goal: Admin/Agent access control and admin-only user management, building on Pha
 Goal: real emails become tickets in the DB, and the app can reply back into the same Gmail thread. (Moved here from `tech-stack.md` — see that file's Email section for the high-level decision/rationale.)
 
 ### Google Cloud / OAuth setup (one-time, manual, in Google Cloud Console)
-- [ ] Create a dedicated Gmail account for the demo (not your personal inbox)
+- [x] Create a dedicated Gmail account for the demo 
 - [ ] Create a Google Cloud project (e.g. `ai-support-demo`)
 - [ ] Enable the Gmail API (APIs & Services → Library)
 - [ ] Configure OAuth consent screen: External user type, app name/support email, scope `gmail.modify`, add the demo Gmail account as a test user, leave app in **Testing** mode

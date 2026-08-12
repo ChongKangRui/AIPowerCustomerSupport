@@ -32,6 +32,15 @@ import { prisma } from "@/lib/prisma";
 //
 // Values are tuned for a low-traffic portfolio demo, not production load.
 
+// Only enforced in production — same NODE_ENV gate lib/prisma.ts already
+// uses elsewhere. Local dev and Playwright e2e runs would otherwise trip
+// the same limiter repeatedly (manual retries, or a suite re-running the
+// login flow across specs) and start throwing 429s for reasons that have
+// nothing to do with what's being tested/developed. app/api/login/route.ts
+// checks this before touching the limiters at all — no reads or writes to
+// the RateLimiterFlexible table happen outside production.
+export const RATE_LIMITING_ENABLED = process.env.NODE_ENV === "production";
+
 // Exported so app/api/login/route.ts's pre-check can tell "at the limit" (a
 // `.get()` read before any block has been set) apart from "over the limit"
 // (a block is active) — see the comment on that pre-check for why the

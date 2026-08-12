@@ -12,6 +12,23 @@ import { LoginForm } from "./login-form";
 // away from /login purely because a cookie exists, a stale/expired/deleted
 // session would trap the user in a redirect loop between "/" and "/login"
 // with no way to reach the actual form and log back in.
+// Demo-account autofill data for the login form. Built here (server-only)
+// from prisma/seed.ts's own SEED_* vars — no NEXT_PUBLIC_ duplicates needed,
+// since a Server Component can read plain env vars and just pass the values
+// down as props instead of relying on client-side env inlining.
+const DEMO_ACCOUNTS = [
+  {
+    label: "Demo agent",
+    email: process.env.SEED_AGENT_EMAIL ?? "agent@example.com",
+    password: process.env.SEED_AGENT_PASSWORD ?? "agent1234",
+  },
+  {
+    label: "Demo admin",
+    email: process.env.SEED_ADMIN_EMAIL ?? "admin@example.com",
+    password: process.env.SEED_ADMIN_PASSWORD ?? "admin1234",
+  },
+] as const;
+
 export default async function LoginPage(props: PageProps<"/login">) {
   const session = await auth();
 
@@ -20,5 +37,5 @@ export default async function LoginPage(props: PageProps<"/login">) {
     redirect(safeRedirectTarget(searchParams.callbackUrl));
   }
 
-  return <LoginForm />;
+  return <LoginForm demoAccounts={DEMO_ACCOUNTS} />;
 }
