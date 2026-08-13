@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 
 import { Input } from "@/components/ui/input";
 import { useUsers } from "@/hooks/use-users";
+import { CreateUserDialog } from "@/components/users/create-user-dialog";
 import { UsersTable } from "@/components/users/users-table";
 import { UsersTableSkeleton } from "@/components/users/users-table-skeleton";
 
@@ -54,6 +55,7 @@ export function UsersView() {
           <option value="ADMIN">Admin</option>
           <option value="AGENT">Agent</option>
         </select>
+        <CreateUserDialog />
       </div>
 
       {isLoading ? (

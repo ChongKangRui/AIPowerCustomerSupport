@@ -1,9 +1,11 @@
+import bcrypt from "bcryptjs";
 import { NextResponse } from "next/server";
 
 import { auth } from "@/auth";
-import { ForbiddenError, UnauthorizedError, withApiHandler } from "@/lib/api-handler";
+import { ConflictError, ForbiddenError, UnauthorizedError, withApiHandler } from "@/lib/api-handler";
 import { prisma } from "@/lib/prisma";
-import type { Role } from "@/lib/generated/prisma/enums";
+import { Role } from "@/lib/generated/prisma/enums";
+import { createUserSchema } from "@/models/user.model";
 
 export type UserListItem = {
   id: string;
@@ -26,7 +28,7 @@ export type UserListItem = {
 export const GET = withApiHandler(async (_request, _context, log) => {
   const session = await auth();
   if (!session?.user) throw new UnauthorizedError();
-  if (session.user.role !== "ADMIN") throw new ForbiddenError();
+  if (session.user.role !== Role.ADMIN) throw new ForbiddenError();
 
   const users = await prisma.user.findMany({
     select: { id: true, name: true, email: true, role: true, createdAt: true },
@@ -35,4 +37,29 @@ export const GET = withApiHandler(async (_request, _context, log) => {
 
   log.info({ count: users.length }, "fetched user list");
   return NextResponse.json({ users });
+});
+
+// POST /api/users — admin-only. Creates a new user (always role AGENT — see
+// implementation-plan.md; promoting to Admin is a separate "edit role"
+// action, not part of creation). Same auth check as GET: this route is its
+// own entry point and must be authoritative on its own, independent of the
+// page-level guard in app/(main)/users/page.tsx.
+export const POST = withApiHandler(async (request, _context, log) => {
+  const session = await auth();
+  if (!session?.user) throw new UnauthorizedError();
+  if (session.user.role !== Role.ADMIN) throw new ForbiddenError();
+
+  const { name, email, password } = createUserSchema.parse(await request.json());
+
+  const existing = await prisma.user.findUnique({ where: { email } });
+  if (existing) throw new ConflictError("A user with this email already exists");
+
+  const passwordHash = await bcrypt.hash(password, 10);
+  const user = await prisma.user.create({
+    data: { name, email, passwordHash, role: Role.AGENT },
+    select: { id: true, name: true, email: true, role: true, createdAt: true },
+  });
+
+  log.info({ userId: user.id }, "created user");
+  return NextResponse.json(user, { status: 201 });
 });

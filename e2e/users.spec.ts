@@ -5,12 +5,16 @@ import { ADMIN_STORAGE_STATE, AGENT_STORAGE_STATE } from "./storage-state";
 
 // Coverage for the admin-only "Users" feature: app/(main)/users/page.tsx,
 // components/users/users-view.tsx + users-table.tsx, hooks/use-users.ts, and
-// GET /api/users (app/api/users/route.ts).
+// GET/POST /api/users (app/api/users/route.ts).
 //
-// Entirely read-only — there's no "create/edit user" flow yet (see
-// implementation-plan.md), so nothing here writes rows another parallel test
-// could race on, and every test loads a shared storageState snapshot
-// (e2e/auth.setup.ts) rather than logging in through the UI.
+// Everything in *this file* is read-only (listing, search/filter, and
+// access control — including POST /api/users' access control, which is
+// exercised here rather than duplicated elsewhere), so nothing here writes
+// rows another parallel test could race on, and every test loads a shared
+// storageState snapshot (e2e/auth.setup.ts) rather than logging in through
+// the UI. The "New user" dialog's actual create flow (validation, success,
+// duplicate-email) does write rows and lives in its own file,
+// e2e/admin-create-user.spec.ts, with its own isolation notes.
 //
 // The page-level admin-vs-agent redirect is also spot-checked (more briefly)
 // in e2e/session-redirect.spec.ts alongside the rest of that file's
@@ -137,6 +141,33 @@ test.describe("GET /api/users", () => {
           }),
         ])
       );
+    });
+  });
+});
+
+test.describe("POST /api/users", () => {
+  // Access control only — same "own entry point, must be authoritative on
+  // its own" auth check as GET (app/api/users/route.ts). The success/
+  // validation/conflict paths for an authorized admin are covered through
+  // the real "New user" UI in e2e/admin-create-user.spec.ts, not repeated
+  // here as a raw API call, so this never itself creates a row.
+  const body = {
+    name: "Should Not Be Created",
+    email: "unauthorized-attempt@example.com",
+    password: "whatever123",
+  };
+
+  test("returns 401 with no session", async ({ request }) => {
+    const response = await request.post("/api/users", { data: body });
+    expect(response.status()).toBe(401);
+  });
+
+  test.describe("as an authenticated agent", () => {
+    test.use({ storageState: AGENT_STORAGE_STATE });
+
+    test("returns 403 — agents can't create users", async ({ request }) => {
+      const response = await request.post("/api/users", { data: body });
+      expect(response.status()).toBe(403);
     });
   });
 });
