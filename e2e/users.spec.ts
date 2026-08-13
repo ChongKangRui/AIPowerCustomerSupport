@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 
+import { Role } from "@/lib/generated/prisma/enums";
 import { ADMIN, AGENT } from "./seeded-users";
 import { ADMIN_STORAGE_STATE, AGENT_STORAGE_STATE } from "./storage-state";
 
@@ -63,11 +64,11 @@ test.describe("admin viewing the users list", () => {
 
     const roleFilter = page.getByLabel("Filter by role");
 
-    await roleFilter.selectOption("ADMIN");
+    await roleFilter.selectOption(Role.ADMIN);
     await expect(page.getByRole("cell", { name: ADMIN.email, exact: true })).toBeVisible();
     await expect(page.getByRole("cell", { name: AGENT.email, exact: true })).toHaveCount(0);
 
-    await roleFilter.selectOption("AGENT");
+    await roleFilter.selectOption(Role.AGENT);
     await expect(page.getByRole("cell", { name: AGENT.email, exact: true })).toBeVisible();
     await expect(page.getByRole("cell", { name: ADMIN.email, exact: true })).toHaveCount(0);
 
@@ -136,7 +137,7 @@ test.describe("GET /api/users", () => {
             id: expect.any(String),
             name: expect.anything(),
             email: ADMIN.email,
-            role: "ADMIN",
+            role: Role.ADMIN,
             createdAt: expect.any(String),
           }),
         ])

@@ -77,7 +77,11 @@ export const POST = withApiHandler(async (request, _context, log) => {
     );
   }
 
-  const user = await prisma.user.findUnique({ where: { email } });
+  // deletedAt: null — a soft-deleted user (see app/api/users/[id]/route.ts's
+  // DELETE) falls straight into the same "no such user" path below as an
+  // unrecognized email, for free — no separate branch needed, and their old
+  // credentials silently stop working.
+  const user = await prisma.user.findFirst({ where: { email, deletedAt: null } });
 
   const isValidPassword = await bcrypt.compare(
     password,

@@ -3,6 +3,7 @@ import "dotenv/config";
 import bcrypt from "bcryptjs";
 
 import { prisma } from "../lib/prisma";
+import { Role } from "../lib/generated/prisma/enums";
 
 // Run with: npm run db:seed
 async function main() {
@@ -11,11 +12,11 @@ async function main() {
 
   const admin = await prisma.user.upsert({
     where: { email: adminEmail },
-    update: { role: "ADMIN" },
+    update: { role: Role.ADMIN },
     create: {
       email: adminEmail,
       name: "Admin",
-      role: "ADMIN",
+      role: Role.ADMIN,
       passwordHash: await bcrypt.hash(adminPassword, 10),
     },
   });
@@ -27,11 +28,11 @@ async function main() {
 
   const agent = await prisma.user.upsert({
     where: { email: agentEmail },
-    update: { role: "AGENT" },
+    update: { role: Role.AGENT },
     create: {
       email: agentEmail,
       name: "Agent",
-      role: "AGENT",
+      role: Role.AGENT,
       passwordHash: await bcrypt.hash(agentPassword, 10),
     },
   });

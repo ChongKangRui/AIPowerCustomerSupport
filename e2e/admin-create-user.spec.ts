@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 
+import { Role } from "@/lib/generated/prisma/enums";
 import { ADMIN } from "./seeded-users";
 import { ADMIN_STORAGE_STATE } from "./storage-state";
 
@@ -99,7 +100,7 @@ test.describe("admin creating a user from /users", () => {
     await expect(row).toBeVisible();
     await expect(row.getByRole("cell", { name, exact: true })).toBeVisible();
     await expect(row.getByRole("cell", { name: email, exact: true })).toBeVisible();
-    await expect(row.getByText("AGENT", { exact: true })).toBeVisible();
+    await expect(row.getByText(Role.AGENT, { exact: true })).toBeVisible();
   });
 
   test("shows the server's 409 error for a duplicate email and keeps the modal open", async ({

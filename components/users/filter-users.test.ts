@@ -38,8 +38,8 @@ describe("filterUsers", () => {
   });
 
   it("filters by role only", () => {
-    expect(filterUsers(users, "", "ADMIN")).toEqual([admin]);
-    expect(filterUsers(users, "", "AGENT")).toEqual([agent, nameless]);
+    expect(filterUsers(users, "", Role.ADMIN)).toEqual([admin]);
+    expect(filterUsers(users, "", Role.AGENT)).toEqual([agent, nameless]);
   });
 
   it("matches search against name, case-insensitively", () => {
@@ -64,9 +64,9 @@ describe("filterUsers", () => {
 
   it("combines search and role with AND, not OR", () => {
     // Matches the search term but not the role.
-    expect(filterUsers(users, "ada", "AGENT")).toEqual([]);
+    expect(filterUsers(users, "ada", Role.AGENT)).toEqual([]);
     // Matches the role but not the search term.
-    expect(filterUsers(users, "nobody-matches-this", "AGENT")).toEqual([]);
+    expect(filterUsers(users, "nobody-matches-this", Role.AGENT)).toEqual([]);
   });
 
   it("returns an empty array when nothing matches", () => {

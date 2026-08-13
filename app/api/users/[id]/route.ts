@@ -9,6 +9,7 @@ import {
   withApiHandler,
 } from "@/lib/api-handler";
 import { prisma } from "@/lib/prisma";
+import { destroyAllUserSessions } from "@/lib/session";
 import { Role } from "@/lib/generated/prisma/enums";
 import { updateUserSchema } from "@/models/user.model";
 
@@ -45,5 +46,32 @@ export const PATCH = withApiHandler<{ params: Promise<{ id: string }> }>(
 
     log.info({ userId: user.id, passwordChanged: Boolean(passwordHash) }, "updated user");
     return NextResponse.json(user);
+  }
+);
+
+// DELETE /api/users/[id] — admin-only. Soft-deletes: sets deletedAt rather
+// than removing the row, so historical Ticket/TicketMessage references
+// (assignedTo/author) keep resolving — see schema.prisma's User model.
+// Admins can never be deleted (403). Force-invalidates the target's active
+// sessions immediately rather than waiting for their cookie to expire.
+export const DELETE = withApiHandler<{ params: Promise<{ id: string }> }>(
+  async (_request, context, log, session) => {
+    if (!session?.user) throw new UnauthorizedError();
+    if (session.user.role !== Role.ADMIN) throw new ForbiddenError();
+
+    const { id } = await context.params;
+
+    // "Already deleted" is treated the same as "never existed" — both 404.
+    const target = await prisma.user.findUnique({ where: { id } });
+    if (!target || target.deletedAt) throw new NotFoundError("User not found");
+    if (target.role === Role.ADMIN) {
+      throw new ForbiddenError("Admin users cannot be deleted");
+    }
+
+    await prisma.user.update({ where: { id }, data: { deletedAt: new Date() } });
+    await destroyAllUserSessions(id);
+
+    log.info({ userId: id }, "deleted user");
+    return new NextResponse(null, { status: 204 });
   }
 );

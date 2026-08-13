@@ -7,14 +7,16 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { DeleteUserDialog } from "@/components/users/delete-user-dialog";
 import { EditUserDialog } from "@/components/users/edit-user-dialog";
+import { Role } from "@/lib/generated/prisma/enums";
 import type { UserListItem } from "@/app/api/users/route";
 
 const dateFormatter = new Intl.DateTimeFormat("en-US", { dateStyle: "medium" });
 
 function RoleBadge({ role }: { role: UserListItem["role"] }) {
   return (
-    <Badge variant={role === "ADMIN" ? "default" : "secondary"}>{role}</Badge>
+    <Badge variant={role === Role.ADMIN ? "default" : "secondary"}>{role}</Badge>
   );
 }
 
@@ -23,11 +25,11 @@ export function UsersTable({ users }: { users: UserListItem[] }) {
     <Table className="table-fixed">
       <TableHeader>
         <TableRow>
-          <TableHead className="w-[26%]">Name</TableHead>
-          <TableHead className="w-[32%]">Email</TableHead>
+          <TableHead className="w-[25%]">Name</TableHead>
+          <TableHead className="w-[31%]">Email</TableHead>
           <TableHead className="w-[16%]">Role</TableHead>
           <TableHead className="w-[16%]">Joined</TableHead>
-          <TableHead className="w-[10%] text-right">Actions</TableHead>
+          <TableHead className="w-[12%] text-right">Actions</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -42,7 +44,10 @@ export function UsersTable({ users }: { users: UserListItem[] }) {
               {dateFormatter.format(new Date(user.createdAt))}
             </TableCell>
             <TableCell className="text-right">
-              <EditUserDialog user={user} />
+              <div className="flex justify-end gap-1">
+                <EditUserDialog user={user} />
+                <DeleteUserDialog user={user} />
+              </div>
             </TableCell>
           </TableRow>
         ))}

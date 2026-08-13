@@ -57,3 +57,17 @@ export async function destroyUserSession() {
 
   cookieStore.delete(SESSION_COOKIE_NAME);
 }
+
+/**
+ * Deletes every `Session` row for `userId` — used by DELETE
+ * /api/users/[id] to force-invalidate all of a just-deleted user's active
+ * sessions immediately, rather than waiting for their cookie to expire
+ * naturally. Unlike destroyUserSession, this isn't scoped to "the current
+ * request's session": it's an admin action performed on someone else's
+ * account, so there's no cookie here to read or clear — the targeted
+ * browser's cookie will simply stop matching any row on its next request
+ * and fail auth normally.
+ */
+export async function destroyAllUserSessions(userId: string) {
+  await prisma.session.deleteMany({ where: { userId } });
+}

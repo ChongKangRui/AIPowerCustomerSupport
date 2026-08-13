@@ -1,6 +1,9 @@
+import type { Role } from "@/lib/generated/prisma/enums";
 import type { UserListItem } from "@/app/api/users/route";
 
-export type RoleFilter = "ALL" | "ADMIN" | "AGENT";
+// "ALL" is a UI-only sentinel meaning "no role filter" — not a real Role,
+// so it's added alongside the enum rather than being part of it.
+export type RoleFilter = "ALL" | Role;
 
 // Client-side search/role filter for the admin Users page (used by
 // components/users/users-view.tsx, inside a useMemo there). Pulled out as a

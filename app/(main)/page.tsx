@@ -5,13 +5,12 @@ import { useCurrentUser } from "@/hooks/use-current-user";
 export default function HomePage() {
   const { user, isLoading } = useCurrentUser();
 
-  // proxy.ts already guarantees a session cookie exists before this page is
-  // reachable, so `user` is only null here while the session query is still
-  // in flight (a real "logged out" render would never get past the proxy
-  // redirect) — don't flash the logged-out-looking "Welcome" copy for that.
-  // The `user` null fallback after loading covers the one edge case proxy.ts
-  // *can't* rule out: a cookie that's present but points at an
-  // already-expired/deleted Session row.
+  // app/(main)/layout.tsx's own auth() check now guarantees a genuinely
+  // valid session before this page is ever reachable (proxy.ts's cheap
+  // cookie-presence check alone couldn't rule out a cookie surviving its
+  // Session row's deletion — see that layout's comment), so `user` is only
+  // null here while the session query is still in flight — don't flash the
+  // logged-out-looking "Welcome" copy for that.
   const heading =
     !isLoading && user ? `Welcome back, ${user.name ?? user.email}` : "Welcome";
 

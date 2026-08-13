@@ -64,7 +64,12 @@ test.describe("admin editing a user from /users", () => {
     await expect(page.getByRole("cell", { name: AGENT.email, exact: true })).toBeVisible();
 
     const agentRow = page.getByRole("row", { name: new RegExp(AGENT.email) });
-    await agentRow.getByRole("button", { name: /edit/i }).click();
+    // Anchored at the start (not a bare /edit/i) — since the delete-user
+    // feature added a same-row Delete button, a loose "contains edit"
+    // match would also catch it for any row whose fixture name happens to
+    // contain the word "Edit" (several below do, e.g. "Edit Test New
+    // Password" → accessible name "Delete Edit Test New Password").
+    await agentRow.getByRole("button", { name: /^edit /i }).click();
 
     const dialog = page.getByRole("dialog", { name: "Edit user" });
     await expect(dialog).toBeVisible();
@@ -85,7 +90,7 @@ test.describe("admin editing a user from /users", () => {
     await createUserViaUi(page, { name: "Edit Test Original Name", email, password: originalPassword });
 
     const row = page.getByRole("row", { name: new RegExp(email) });
-    await row.getByRole("button", { name: /edit/i }).click();
+    await row.getByRole("button", { name: /^edit /i }).click();
 
     const dialog = page.getByRole("dialog", { name: "Edit user" });
     await dialog.getByLabel("Name").fill(updatedName);
@@ -129,7 +134,7 @@ test.describe("admin editing a user from /users", () => {
     await createUserViaUi(page, { name, email, password: originalPassword });
 
     const row = page.getByRole("row", { name: new RegExp(email) });
-    await row.getByRole("button", { name: /edit/i }).click();
+    await row.getByRole("button", { name: /^edit /i }).click();
 
     const dialog = page.getByRole("dialog", { name: "Edit user" });
     await dialog.getByLabel("New password").fill(newPassword);
@@ -166,7 +171,7 @@ test.describe("admin editing a user from /users", () => {
       password: "supersecret123",
     });
 
-    await row.getByRole("button", { name: /edit/i }).click();
+    await row.getByRole("button", { name: /^edit /i }).click();
     const dialog = page.getByRole("dialog", { name: "Edit user" });
     // Targets the seeded admin's email on purpose, read-only — see the
     // isolation note at the top of this file (mirrors
@@ -191,7 +196,7 @@ test.describe("admin editing a user from /users", () => {
     await expect(adminRow).toBeVisible();
 
     try {
-      await adminRow.getByRole("button", { name: /edit/i }).click();
+      await adminRow.getByRole("button", { name: /^edit /i }).click();
       const dialog = page.getByRole("dialog", { name: "Edit user" });
       await dialog.getByLabel("Name").fill(updatedName);
       await dialog.getByRole("button", { name: "Save changes" }).click();
@@ -208,7 +213,7 @@ test.describe("admin editing a user from /users", () => {
       // isolation note at the top of this file) — always restore it, even if
       // an assertion above failed, so this test never leaves the shared
       // fixture renamed for whichever spec runs next.
-      await adminRow.getByRole("button", { name: /edit/i }).click();
+      await adminRow.getByRole("button", { name: /^edit /i }).click();
       const restoreDialog = page.getByRole("dialog", { name: "Edit user" });
       await restoreDialog.getByLabel("Name").fill(ADMIN.name);
       await restoreDialog.getByRole("button", { name: "Save changes" }).click();

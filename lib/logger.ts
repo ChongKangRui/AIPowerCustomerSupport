@@ -2,6 +2,8 @@ import { randomUUID } from "crypto";
 
 import pino from "pino";
 
+import type { Role } from "@/lib/generated/prisma/enums";
+
 const isProduction = process.env.NODE_ENV === "production";
 
 // The single shared Pino instance for the whole app.
@@ -29,7 +31,7 @@ export const logger = pino({
 export type LoggedUser = {
   id: string;
   email: string | null;
-  role: string;
+  role: Role;
 };
 
 export type RequestLogContext = {

@@ -13,11 +13,11 @@ export function UsersTableSkeleton({ rows = 5 }: { rows?: number }) {
     <Table className="table-fixed">
       <TableHeader>
         <TableRow>
-          <TableHead className="w-[26%]">Name</TableHead>
-          <TableHead className="w-[32%]">Email</TableHead>
+          <TableHead className="w-[25%]">Name</TableHead>
+          <TableHead className="w-[31%]">Email</TableHead>
           <TableHead className="w-[16%]">Role</TableHead>
           <TableHead className="w-[16%]">Joined</TableHead>
-          <TableHead className="w-[10%] text-right">Actions</TableHead>
+          <TableHead className="w-[12%] text-right">Actions</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -36,7 +36,10 @@ export function UsersTableSkeleton({ rows = 5 }: { rows?: number }) {
               <Skeleton className="h-4 w-2/3" />
             </TableCell>
             <TableCell className="text-right">
-              <Skeleton className="ml-auto h-7 w-7 rounded-md" />
+              <div className="flex justify-end gap-1">
+                <Skeleton className="h-7 w-7 rounded-md" />
+                <Skeleton className="h-7 w-7 rounded-md" />
+              </div>
             </TableCell>
           </TableRow>
         ))}

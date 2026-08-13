@@ -8,6 +8,7 @@ import { CreateUserDialog } from "@/components/users/create-user-dialog";
 import { filterUsers, type RoleFilter } from "@/components/users/filter-users";
 import { UsersTable } from "@/components/users/users-table";
 import { UsersTableSkeleton } from "@/components/users/users-table-skeleton";
+import { Role } from "@/lib/generated/prisma/enums";
 
 export function UsersView() {
   const { users, isLoading, isError } = useUsers();
@@ -38,8 +39,8 @@ export function UsersView() {
           className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
         >
           <option value="ALL">All roles</option>
-          <option value="ADMIN">Admin</option>
-          <option value="AGENT">Agent</option>
+          <option value={Role.ADMIN}>Admin</option>
+          <option value={Role.AGENT}>Agent</option>
         </select>
         <CreateUserDialog />
       </div>

@@ -45,6 +45,10 @@ enum MessageAuthorType {
 model User {
   id            String    @id @default(cuid())
   name          String?
+  // Permanently unique, even across a soft-deleted row — an email is
+  // reserved forever once used, deleted or not (deliberate: see
+  // implementation-plan.md). Only login and the admin list filter on
+  // deletedAt; create/edit's conflict checks don't.
   email         String    @unique
   emailVerified DateTime?
   image         String?
@@ -52,6 +56,11 @@ model User {
   /// bcrypt hash — credentials login for this single-org demo
   passwordHash String?
   role         Role   @default(AGENT)
+
+  /// Soft-delete marker. Null = active. Set = deleted; row is never
+  /// mutated otherwise, so historical Ticket/TicketMessage references
+  /// (assignedTo/author) keep resolving. See email's comment above.
+  deletedAt DateTime?
 
   accounts Account[]
   sessions Session[]
@@ -61,6 +70,8 @@ model User {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([deletedAt])
 }
 
 model Account {

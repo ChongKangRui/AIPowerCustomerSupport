@@ -29,6 +29,7 @@ export const GET = withApiHandler(async (_request, _context, log, session) => {
   if (session.user.role !== Role.ADMIN) throw new ForbiddenError();
 
   const users = await prisma.user.findMany({
+    where: { deletedAt: null },
     select: { id: true, name: true, email: true, role: true, createdAt: true },
     orderBy: { createdAt: "asc" },
   });
