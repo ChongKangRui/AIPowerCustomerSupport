@@ -26,8 +26,20 @@ type SessionResponse = {
 export function useCurrentUser() {
   const { data, isLoading } = useQuery({
     queryKey: ["session"],
-    queryFn: () => apiClient.get<SessionResponse>("/api/auth/session").then((res) => res.data),
-  });
+    // Forward TanStack Query's own AbortSignal to axios. Without this, a
+    // stale in-flight request (e.g. the automatic on-mount fetch this hook
+    // kicks off on /login, sent *before* the user submits the form) can't
+    // actually be cancelled at the network layer when invalidateQueries()
+    // triggers a fresh refetch after login — the old axios call just keeps
+    // running, and if it happens to resolve *after* the new one (a real
+    // risk the first time this route needs a cold dev-mode compile), its
+    // pre-login "not logged in" answer silently overwrites the correct
+    // post-login session data in the cache.
+    queryFn: ({ signal }) =>
+      apiClient.get<SessionResponse>("/api/auth/session", { signal }).then((res) => res.data),
+  }
+  
+);
 
   return {
     user: data?.user ?? null,

@@ -44,6 +44,18 @@ export function LoginForm({ demoAccounts }: { demoAccounts: readonly DemoAccount
   const loginMutation = useMutation({
     mutationFn: (values: LoginInput) => apiClient.post("/api/login", values),
     onSuccess: async () => {
+      // Cancel first, *then* invalidate. This component's own useCurrentUser()
+      // call (below) fires a "session" fetch the instant LoginForm mounts —
+      // before the user has even submitted the form. If that fetch is still
+      // in flight when login succeeds (e.g. the dev server hasn't compiled
+      // /api/auth/session yet and it takes ~700ms), invalidateQueries alone
+      // won't start a genuinely new request: it piggybacks on the one
+      // already in flight, which was sent with the *pre-login* cookie and
+      // so resolves to "not logged in" — silently overwriting the correct
+      // post-login session in the cache. cancelQueries aborts that stale
+      // request (via the AbortSignal use-current-user.ts now forwards to
+      // axios) so the invalidate below is guaranteed to issue a fresh one.
+      await queryClient.cancelQueries({ queryKey: ["session"] });
       // Refetch "who's logged in" before navigating, so the navbar on the
       // destination page already has the right name instead of a stale
       // "logged out" flash.
@@ -52,6 +64,14 @@ export function LoginForm({ demoAccounts }: { demoAccounts: readonly DemoAccount
       // the destination instead of adding a new one, so /login is no longer
       // a reachable Back target at all — see the useCurrentUser effect below
       // for why that alone still isn't the full fix.
+      //
+      // This explicit call is load-bearing, not just belt-and-suspenders
+      // alongside that effect: relying solely on the effect (dropping this
+      // line and letting the invalidated query's refetch flip `user` truthy)
+      // was tried and measurably flaky under e2e load — the effect's
+      // redirect didn't fire reliably right after a fresh submit. Keep both:
+      // this one covers "just logged in", the effect covers the back-button/
+      // Router-Cache-remount cases where this onSuccess never runs at all.
       router.replace(safeRedirectTarget(searchParams.get("callbackUrl")));
     },
   });

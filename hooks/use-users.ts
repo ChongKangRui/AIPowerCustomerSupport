@@ -14,8 +14,10 @@ type UsersResponse = { users: UserListItem[] };
 export function useUsers() {
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ["users"],
-    queryFn: () =>
-      apiClient.get<UsersResponse>("/api/users").then((res) => res.data.users),
+    // Forward the AbortSignal — see use-current-user.ts for why a queryFn
+    // that doesn't can serve a stale in-flight response after a refetch.
+    queryFn: ({ signal }) =>
+      apiClient.get<UsersResponse>("/api/users", { signal }).then((res) => res.data.users),
   });
 
   return { users: data ?? [], isLoading, isError, error };

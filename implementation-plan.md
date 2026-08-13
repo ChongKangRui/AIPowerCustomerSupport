@@ -22,6 +22,7 @@ Goal: empty-but-deployed skeleton, DB connected, auth working, nothing product-s
 - [x] Structured logging (Pino, `lib/logger.ts`) + shared `withApiHandler` Route Handler wrapper (`lib/api-handler.ts`) for consistent request logging/error responses across API routes; client-side `apiClient` (axios, `lib/api-client.ts`) unwraps those error responses
 - [x] `/api/health-check` route + `/health-check` page for a basic liveness check
 - [x] Playwright e2e setup: `playwright.config.ts` boots `next dev` on a separate port (3100, own `distDir` too — see `tech-stack.md` → Testing gotchas) against a dedicated test database; `e2e/global-setup.ts` creates that database if needed and resets+reseeds it (`prisma migrate reset --force` + explicit `prisma db seed`) before every run. Auth spec coverage (login, logout, session/route-protection redirects, open-redirect guard) written via the `e2e-test-writer` subagent — see `e2e/*.spec.ts`. `npm run test:e2e`.
+- [x] Vitest unit test setup: `vitest.config.mts` (jsdom + React Testing Library installed for later component tests), co-located `*.test.ts` convention — see `tech-stack.md` → Testing for the three interop gotchas (next-auth/`next/server` resolution, Prisma-at-import, `*.spec.ts` glob collision with Playwright). First pass covers pure logic only: `lib/safe-redirect.ts`, `models/auth.model.ts`, `lib/utils.ts`, `lib/api-handler.ts`'s `HttpError` hierarchy. `npm run test`.
 - [ ] Deploy skeleton to Vercel, confirm build + DB connection work end-to-end in production early (de-risks deployment issues later)
 
 ---
