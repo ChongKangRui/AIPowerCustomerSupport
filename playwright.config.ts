@@ -13,7 +13,17 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  // Locally, fullyParallel + an uncapped worker count (Playwright's default
+  // is roughly your CPU core count) can throw far more concurrent requests
+  // at the single shared `next dev` process + its DB connection pool than a
+  // local Postgres instance's default pool size can serve at once — auth()
+  // alone runs twice per request (see lib/api-handler.ts + each route's own
+  // check), each a DB round trip, so a burst of e.g. 10 tests all hitting
+  // /users together can genuinely queue for 10+ seconds waiting for a free
+  // connection, well past expect.timeout below. Capping workers keeps that
+  // burst small enough not to saturate the pool. CI already serializes
+  // entirely (workers: 1), so this only changes local runs.
+  workers: process.env.CI ? 1 : 4,
 
   // Both default to the project root otherwise — keeping generated e2e
   // output (traces, screenshots, error-context.md, the HTML report) nested

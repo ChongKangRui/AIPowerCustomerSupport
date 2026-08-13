@@ -19,12 +19,20 @@ import { ADMIN_STORAGE_STATE } from "./storage-state";
 // Shared-state isolation: fullyParallel workers share one test DB that's
 // reset only once for the whole suite run (e2e/global-setup.ts), so the test
 // that actually creates a row gives it an email unique to that test run
-// (test.info().testId) — same pattern e2e/login.spec.ts already uses for its
-// nonexistent-user case — rather than a fixed literal another parallel spec
-// could collide with. The duplicate-email test is the one deliberate
-// exception: it targets the seeded admin's own email, which no other spec
-// deletes or renames, so asserting a 409 against it is safe to do
-// concurrently from any number of workers.
+// rather than a fixed literal another parallel spec could collide with.
+// test.info().testId alone is NOT enough for this, despite being the pattern
+// e2e/login.spec.ts uses for its nonexistent-user case there: testId is a
+// deterministic hash of the file+title, stable across every execution of
+// this same test (retries included) — a test that creates a row via a
+// testId-only email, then fails on a later assertion (e.g. dev-server
+// compile latency, see playwright.config.ts's expect.timeout comment) and
+// gets retried, or gets manually re-run from --ui without a fresh DB reset
+// in between, hits a *real* 409 on attempt 2 against the row attempt 1 truly
+// created — hence Date.now() appended too, unique per actual attempt, not
+// just per logical test. The duplicate-email test is the one deliberate
+// exception to needing any of this: it targets the seeded admin's own
+// email, which no other spec deletes or renames, so asserting a 409 against
+// it is safe (and idempotent to rerun) from any number of workers.
 
 test.describe("admin creating a user from /users", () => {
   test.use({ storageState: ADMIN_STORAGE_STATE });
@@ -67,7 +75,7 @@ test.describe("admin creating a user from /users", () => {
   test("creates a new agent and it appears in the table without a manual reload", async ({
     page,
   }) => {
-    const email = `e2e-create-user-${test.info().testId}@example.com`;
+    const email = `e2e-create-user-${test.info().testId}-${Date.now()}@example.com`;
     const name = "E2E Created User";
 
     await page.goto("/users");

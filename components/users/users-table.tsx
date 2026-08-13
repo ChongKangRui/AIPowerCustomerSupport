@@ -7,6 +7,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { EditUserDialog } from "@/components/users/edit-user-dialog";
 import type { UserListItem } from "@/app/api/users/route";
 
 const dateFormatter = new Intl.DateTimeFormat("en-US", { dateStyle: "medium" });
@@ -22,10 +23,11 @@ export function UsersTable({ users }: { users: UserListItem[] }) {
     <Table className="table-fixed">
       <TableHeader>
         <TableRow>
-          <TableHead className="w-[28%]">Name</TableHead>
-          <TableHead className="w-[34%]">Email</TableHead>
-          <TableHead className="w-[19%]">Role</TableHead>
-          <TableHead className="w-[19%]">Joined</TableHead>
+          <TableHead className="w-[26%]">Name</TableHead>
+          <TableHead className="w-[32%]">Email</TableHead>
+          <TableHead className="w-[16%]">Role</TableHead>
+          <TableHead className="w-[16%]">Joined</TableHead>
+          <TableHead className="w-[10%] text-right">Actions</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -38,6 +40,9 @@ export function UsersTable({ users }: { users: UserListItem[] }) {
             </TableCell>
             <TableCell className="text-muted-foreground">
               {dateFormatter.format(new Date(user.createdAt))}
+            </TableCell>
+            <TableCell className="text-right">
+              <EditUserDialog user={user} />
             </TableCell>
           </TableRow>
         ))}

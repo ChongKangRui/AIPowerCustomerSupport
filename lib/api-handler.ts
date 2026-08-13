@@ -9,6 +9,17 @@ import { createRequestLogger, type LoggedUser } from "@/lib/logger";
 
 type Logger = ReturnType<typeof createRequestLogger>;
 
+// `auth` is overloaded (NextAuth also uses it as a middleware wrapper, a
+// route-handler wrapper, etc. depending on how it's called) — ReturnType<>
+// applied directly to that overloaded type grabs the wrong signature. Going
+// through a helper that calls it the one way this file actually does (zero
+// args) forces TS to resolve the correct overload via normal call-site
+// resolution, then ReturnType<> extracts *that* one unambiguously.
+function getSession() {
+  return auth();
+}
+type Session = Awaited<ReturnType<typeof getSession>>;
+
 // ---------------------------------------------------------------------------
 // Errors — throw these from anywhere inside a route handler to control the
 // exact status code/message sent back. Anything else thrown becomes a
@@ -72,7 +83,8 @@ export class TooManyRequestsError extends HttpError {
 type ApiHandler<Context> = (
   request: NextRequest,
   context: Context,
-  log: Logger
+  log: Logger,
+  session: Session
 ) => Promise<Response> | Response;
 
 /**
@@ -91,8 +103,25 @@ type ApiHandler<Context> = (
  *     anything else unexpected becomes a generic 500. No route needs its own
  *     try/catch.
  *
+ *  3. The session, resolved once here and handed to the handler as its 4th
+ *     argument — `auth()` (database session strategy) is a real DB query,
+ *     not a cheap cookie decode, and isn't deduped by NextAuth itself across
+ *     multiple calls within one request. Routes that need to enforce
+ *     authentication/authorization still do their own check on the value
+ *     they're given (this wrapper doesn't enforce anything, same as before —
+ *     a route is still its own authoritative entry point, independent of
+ *     any page-level guard); they just no longer each re-fetch it.
+ *     Best-effort: a failed lookup here resolves to `null` rather than
+ *     throwing (see the comment at the call site below), so a route relying
+ *     on it for enforcement will see "no session" and correctly fail closed
+ *     with 401/403 — it just won't distinguish that from a genuine transient
+ *     auth-service failure (which would previously have surfaced as a 500
+ *     from that route's own unswallowed `auth()` call). Worth knowing if
+ *     you're ever debugging an unexpected 401 under that specific condition.
+ *
  * Usage:
- *   export const GET = withApiHandler(async (request, context, log) => {
+ *   export const GET = withApiHandler(async (request, context, log, session) => {
+ *     if (!session?.user) throw new UnauthorizedError();
  *     log.debug("fetching ticket");
  *     const ticket = await getTicket(id);
  *     if (!ticket) throw new NotFoundError("Ticket not found");
@@ -117,7 +146,10 @@ export function withApiHandler<Context = { params?: Promise<Record<string, strin
     const method = request.method;
 
     // Best-effort — logging must never itself be the reason a request fails.
-    const session = await auth().catch(() => null);
+    // Also the one and only auth() call for the whole request now (see the
+    // 3rd point in the doc comment above) — handed to the handler below
+    // instead of each route re-fetching its own copy.
+    const session = await getSession().catch(() => null);
     const user: LoggedUser | null = session?.user
       ? {
           id: session.user.id,
@@ -129,7 +161,7 @@ export function withApiHandler<Context = { params?: Promise<Record<string, strin
     const log = createRequestLogger({ requestId, route, method, user });
 
     try {
-      const response = await handler(request, context, log);
+      const response = await handler(request, context, log, session);
       response.headers.set("x-request-id", requestId);
 
       log.info(

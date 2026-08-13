@@ -5,35 +5,21 @@ import { useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { useUsers } from "@/hooks/use-users";
 import { CreateUserDialog } from "@/components/users/create-user-dialog";
+import { filterUsers, type RoleFilter } from "@/components/users/filter-users";
 import { UsersTable } from "@/components/users/users-table";
 import { UsersTableSkeleton } from "@/components/users/users-table-skeleton";
-
-type RoleFilter = "ALL" | "ADMIN" | "AGENT";
 
 export function UsersView() {
   const { users, isLoading, isError } = useUsers();
   const [search, setSearch] = useState("");
   const [role, setRole] = useState<RoleFilter>("ALL");
 
-  // Filtering happens client-side over the single GET /api/users response
-  // rather than as query params/a filter-aware query key, deliberately.
-  // This table is a handful of admin/agent accounts (single-org demo, see
-  // project-scope.md) — at that scale, filtering in memory is instant and
-  // avoids a Zod query schema, debounced requests, and TanStack Query cache
-  // fragmentation per filter combination. Server-side filtering is the
-  // right call for a dataset that actually grows unbounded — the Tickets
-  // list (implementation-plan.md Phase 3) is where that's earned, not here.
-  const filteredUsers = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    return users.filter((user) => {
-      const matchesRole = role === "ALL" || user.role === role;
-      const matchesSearch =
-        query === "" ||
-        (user.name ?? "").toLowerCase().includes(query) ||
-        user.email.toLowerCase().includes(query);
-      return matchesRole && matchesSearch;
-    });
-  }, [users, search, role]);
+  // See filter-users.ts for why this filtering happens client-side, and why
+  // it's a standalone function rather than written inline here.
+  const filteredUsers = useMemo(
+    () => filterUsers(users, search, role),
+    [users, search, role]
+  );
 
   return (
     <div className="flex flex-1 flex-col gap-4">

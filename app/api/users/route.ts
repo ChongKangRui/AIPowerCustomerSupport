@@ -1,7 +1,6 @@
 import bcrypt from "bcryptjs";
 import { NextResponse } from "next/server";
 
-import { auth } from "@/auth";
 import { ConflictError, ForbiddenError, UnauthorizedError, withApiHandler } from "@/lib/api-handler";
 import { prisma } from "@/lib/prisma";
 import { Role } from "@/lib/generated/prisma/enums";
@@ -17,16 +16,15 @@ export type UserListItem = {
 
 // GET /api/users — admin-only. Returns every user for the admin "Users" page.
 //
-// No query params: withApiHandler only calls auth() internally for request
-// logging (see lib/api-handler.ts), it doesn't enforce anything, so this
-// handler does its own session + role check rather than trusting the
-// page-level guard in app/(main)/users/page.tsx — this is a separate entry
-// point and must be authoritative on its own.
+// No query params. withApiHandler resolves the session once and hands it to
+// us as the 4th argument (see lib/api-handler.ts) — it doesn't enforce
+// anything itself, so this handler still does its own session + role check
+// rather than trusting the page-level guard in app/(main)/users/page.tsx —
+// this is a separate entry point and must be authoritative on its own.
 //
 // Deliberately no search/role filtering here — see the comment in
 // components/users/users-view.tsx for why that's done client-side instead.
-export const GET = withApiHandler(async (_request, _context, log) => {
-  const session = await auth();
+export const GET = withApiHandler(async (_request, _context, log, session) => {
   if (!session?.user) throw new UnauthorizedError();
   if (session.user.role !== Role.ADMIN) throw new ForbiddenError();
 
@@ -44,8 +42,7 @@ export const GET = withApiHandler(async (_request, _context, log) => {
 // action, not part of creation). Same auth check as GET: this route is its
 // own entry point and must be authoritative on its own, independent of the
 // page-level guard in app/(main)/users/page.tsx.
-export const POST = withApiHandler(async (request, _context, log) => {
-  const session = await auth();
+export const POST = withApiHandler(async (request, _context, log, session) => {
   if (!session?.user) throw new UnauthorizedError();
   if (session.user.role !== Role.ADMIN) throw new ForbiddenError();
 
