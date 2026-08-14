@@ -48,6 +48,7 @@ Two distinct, separate paths — not a single blended flow:
   - Admin: user management, sees all tickets, platform settings.
   - Agent: sees tickets assigned to them (assignment-scoped, not full queue by default).
 - Escalated (Path B) tickets are assigned to agents via **auto round-robin**.
+- Admins can also assign/unassign a ticket **manually**, from either the ticket detail page or the tickets list (single or bulk) — only while the ticket is **OPEN**; Agents cannot assign, only view. Assignable pool is all Users (Admin or Agent), not Agent-only.
 - Agents are notified of a new assignment both **in-app** and via **email**.
 
 ## Customer Visibility

@@ -2,14 +2,21 @@
 
 import { useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import type { RowSelectionState } from "@tanstack/react-table";
 
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useTickets } from "@/hooks/use-tickets";
+import { useCurrentUser } from "@/hooks/use-current-user";
+import { useUsers } from "@/hooks/use-users";
+import { useBulkAssignTickets } from "@/hooks/use-bulk-assign-tickets";
 import { useTicketsTable } from "@/components/tickets/use-tickets-table";
+import { AssignMenu } from "@/components/tickets/assign-menu";
 import { TicketsTable } from "@/components/tickets/tickets-table";
 import { TicketsTableSkeleton } from "@/components/tickets/tickets-table-skeleton";
 import { TicketsPagination } from "@/components/tickets/tickets-pagination";
+import { Role } from "@/lib/generated/prisma/enums";
 import {
   ticketListQuerySchema,
   type TicketSortableField,
@@ -77,6 +84,23 @@ export function TicketsView() {
     setSearchInput(q);
   }
 
+  // Bulk-select state for the admin-only assign toolbar (below) — keyed by
+  // ticket id (see use-tickets-table.tsx's getRowId), not row index.
+  // Page/filter-scoped by design (confirmed with the user over persisting
+  // selection across pages): reset via the same "adjust state during
+  // render" pattern as searchInput/syncedQ above — not a useEffect, which
+  // would mean calling setRowSelection from inside an effect (flagged by
+  // this project's react-hooks/set-state-in-effect lint rule) and would
+  // also miss resets triggered by browser back/forward, which don't run
+  // updateParams at all.
+  const paramsKey = `${page}|${sortBy}|${sortDir}|${status}|${q}`;
+  const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
+  const [syncedParamsKey, setSyncedParamsKey] = useState(paramsKey);
+  if (paramsKey !== syncedParamsKey) {
+    setSyncedParamsKey(paramsKey);
+    setRowSelection({});
+  }
+
   const debouncedSearch = useDebouncedValue(searchInput, SEARCH_DEBOUNCE_MS);
   useEffect(() => {
     if (debouncedSearch !== q) updateParams({ q: debouncedSearch, page: 1 });
@@ -89,6 +113,34 @@ export function TicketsView() {
 
   const { tickets, total, isLoading, isError } = useTickets({ page, sortBy, sortDir, status, q });
 
+  const { user } = useCurrentUser();
+  const isAdmin = user?.role === Role.ADMIN;
+  // Only fetched for admins — see hooks/use-users.ts's `enabled` param
+  // comment; agents never render anything that needs this list.
+  const { users: agents } = useUsers({ enabled: isAdmin });
+
+  const bulkAssign = useBulkAssignTickets();
+  // Which single ticket's assign mutation is in flight, for the per-row
+  // "Assigning…" state — bulkAssign.isPending alone can't distinguish a
+  // one-row assign from a many-row one, since both go through the same
+  // mutation (see hooks/use-bulk-assign-tickets.ts's comment on why).
+  const [assigningId, setAssigningId] = useState<string | null>(null);
+
+  function handleAssignOne(ticketId: string, assignedToId: string | null) {
+    setAssigningId(ticketId);
+    bulkAssign.mutate(
+      { ticketIds: [ticketId], assignedToId },
+      { onSettled: () => setAssigningId(null) }
+    );
+  }
+
+  function handleBulkAssign(assignedToId: string | null) {
+    bulkAssign.mutate(
+      { ticketIds: Object.keys(rowSelection), assignedToId },
+      { onSuccess: () => setRowSelection({}) }
+    );
+  }
+
   const table = useTicketsTable({
     tickets,
     total,
@@ -99,9 +151,16 @@ export function TicketsView() {
     // page the user was on may not even exist under the new order.
     onSortChange: (field, dir) => updateParams({ sortBy: field, sortDir: dir, page: 1 }),
     onPageChange: (nextPage) => updateParams({ page: nextPage }),
+    canAssign: isAdmin,
+    agents,
+    rowSelection,
+    onRowSelectionChange: setRowSelection,
+    onAssignOne: handleAssignOne,
+    assigningId,
   });
 
   const hasActiveFilters = status !== "ALL" || q !== "";
+  const selectedCount = Object.keys(rowSelection).length;
 
   return (
     <div className="flex flex-1 flex-col gap-4">
@@ -127,6 +186,35 @@ export function TicketsView() {
           <option value="CLOSED">Closed</option>
         </select>
       </div>
+
+      {/* Admin-only bulk assign toolbar — only shown once at least one
+          (necessarily OPEN, per enableRowSelection in use-tickets-table.tsx)
+          row is checked. */}
+      {isAdmin && selectedCount > 0 && (
+        <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm">
+          <span className="text-muted-foreground">
+            {selectedCount} ticket{selectedCount === 1 ? "" : "s"} selected
+          </span>
+          <AssignMenu
+            agents={agents}
+            value={null}
+            onAssign={handleBulkAssign}
+            disabled={bulkAssign.isPending}
+          >
+            <Button variant="secondary" size="sm" disabled={bulkAssign.isPending}>
+              {bulkAssign.isPending ? "Assigning…" : "Assign to…"}
+            </Button>
+          </AssignMenu>
+          <Button variant="ghost" size="sm" onClick={() => setRowSelection({})}>
+            Clear
+          </Button>
+          {bulkAssign.error && (
+            <p role="alert" className="text-destructive">
+              {bulkAssign.error.message}
+            </p>
+          )}
+        </div>
+      )}
 
       {isLoading ? (
         <TicketsTableSkeleton />

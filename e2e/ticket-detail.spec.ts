@@ -36,6 +36,19 @@ import {
 //     against a mocked apiClient by ticket-detail-view.test.tsx. What's left
 //     for here is only what a mock can't prove: that the real PATCH request
 //     round-trips through the real allow-list and is genuinely persisted.
+//   - Manual assignment (PATCH /api/tickets/[id]/assign and the bulk
+//     PATCH /api/tickets/assign): which control renders for which
+//     role/status, calling onAssign with the right id, and the mutation-error
+//     message rendering are all covered against a mocked apiClient by
+//     ticket-detail-header.test.tsx/ticket-detail-view.test.tsx (single) and
+//     tickets-table.test.tsx/use-tickets-table.test.ts/tickets-view.test.tsx
+//     (bulk). Request-body shape validation
+//     (assignTicketSchema/bulkAssignTicketsSchema) is covered by
+//     models/ticket.model.test.ts. What's left, in the two new describe
+//     blocks below plus one UI round trip, is only what those can't prove:
+//     the real 401/403/404/409/400 status codes, the bulk endpoint's
+//     all-or-nothing behavior against real rows, and that a real PATCH is
+//     genuinely persisted.
 //
 // Test data: same rationale as e2e/ticket-fixtures.ts's top comment —
 // tickets are Gmail-inbound only, no creation UI/API exists, so every
@@ -330,6 +343,194 @@ test.describe("PATCH /api/tickets/[id]", () => {
   });
 });
 
+test.describe("PATCH /api/tickets/[id]/assign", () => {
+  test("returns 401 with no session", async ({ request }) => {
+    const response = await request.patch(`/api/tickets/${detailTicket.id}/assign`, {
+      data: { assignedToId: agentId },
+    });
+    expect(response.status()).toBe(401);
+  });
+
+  test.describe("as a non-admin agent", () => {
+    test.use({ storageState: AGENT_STORAGE_STATE });
+
+    test("returns 403, even for their own ticket", async ({ request }) => {
+      const ticket = await createTicket("OPEN", agentId);
+
+      const response = await request.patch(`/api/tickets/${ticket.id}/assign`, {
+        data: { assignedToId: agentId },
+      });
+      expect(response.status()).toBe(403);
+    });
+  });
+
+  test.describe("as an admin", () => {
+    test.use({ storageState: ADMIN_STORAGE_STATE });
+
+    test("returns 404 for a nonexistent ticket id", async ({ request }) => {
+      const response = await request.patch(`/api/tickets/${crypto.randomUUID()}/assign`, {
+        data: { assignedToId: agentId },
+      });
+      expect(response.status()).toBe(404);
+    });
+
+    test("returns 409, and leaves it unassigned, for a non-OPEN ticket", async ({ request }) => {
+      const ticket = await createTicket("RESOLVED", null);
+
+      const response = await request.patch(`/api/tickets/${ticket.id}/assign`, {
+        data: { assignedToId: agentId },
+      });
+      expect(response.status()).toBe(409);
+
+      const getResponse = await request.get(`/api/tickets/${ticket.id}`);
+      expect((await getResponse.json()).assignedTo).toBeNull();
+    });
+
+    test("returns 400 for an assignee id that doesn't exist", async ({ request }) => {
+      const ticket = await createTicket("OPEN", null);
+
+      const response = await request.patch(`/api/tickets/${ticket.id}/assign`, {
+        data: { assignedToId: crypto.randomUUID() },
+      });
+      expect(response.status()).toBe(400);
+    });
+
+    test("returns 400 for a soft-deleted assignee", async ({ request }) => {
+      // A real soft-deleted row (not just a nonexistent id) — proves the
+      // route's `!assignee || assignee.deletedAt` check actually looks at
+      // deletedAt, not just row existence. Goes through the real DELETE
+      // /api/users/[id] soft-delete flow rather than a raw SQL fixture, since
+      // that's the only thing that sets deletedAt.
+      const deletedAgentId = await withTestDbClient((client) =>
+        createThrowawayAgent(client, {
+          email: `e2e-ticket-assign-deleted-${crypto.randomUUID()}@example.com`,
+          name: "Deleted Agent",
+        })
+      );
+      const deleteResponse = await request.delete(`/api/users/${deletedAgentId}`);
+      expect(deleteResponse.status()).toBe(204);
+
+      const ticket = await createTicket("OPEN", null);
+      const response = await request.patch(`/api/tickets/${ticket.id}/assign`, {
+        data: { assignedToId: deletedAgentId },
+      });
+      expect(response.status()).toBe(400);
+    });
+
+    test("assigning an OPEN ticket to an agent is persisted", async ({ request }) => {
+      const ticket = await createTicket("OPEN", null);
+
+      const patchResponse = await request.patch(`/api/tickets/${ticket.id}/assign`, {
+        data: { assignedToId: agentId },
+      });
+      expect(patchResponse.status()).toBe(200);
+      expect((await patchResponse.json()).assignedTo).toEqual({ id: agentId, name: "Agent" });
+
+      const getResponse = await request.get(`/api/tickets/${ticket.id}`);
+      expect((await getResponse.json()).assignedTo).toEqual({ id: agentId, name: "Agent" });
+    });
+
+    test("unassigning (assignedToId: null) an already-assigned OPEN ticket is persisted", async ({
+      request,
+    }) => {
+      const ticket = await createTicket("OPEN", agentId);
+
+      const patchResponse = await request.patch(`/api/tickets/${ticket.id}/assign`, {
+        data: { assignedToId: null },
+      });
+      expect(patchResponse.status()).toBe(200);
+      expect((await patchResponse.json()).assignedTo).toBeNull();
+
+      const getResponse = await request.get(`/api/tickets/${ticket.id}`);
+      expect((await getResponse.json()).assignedTo).toBeNull();
+    });
+  });
+});
+
+test.describe("PATCH /api/tickets/assign (bulk)", () => {
+  test("returns 401 with no session", async ({ request }) => {
+    const ticket = await createTicket("OPEN", null);
+
+    const response = await request.patch(`/api/tickets/assign`, {
+      data: { ticketIds: [ticket.id], assignedToId: agentId },
+    });
+    expect(response.status()).toBe(401);
+  });
+
+  test.describe("as a non-admin agent", () => {
+    test.use({ storageState: AGENT_STORAGE_STATE });
+
+    test("returns 403", async ({ request }) => {
+      const ticket = await createTicket("OPEN", agentId);
+
+      const response = await request.patch(`/api/tickets/assign`, {
+        data: { ticketIds: [ticket.id], assignedToId: agentId },
+      });
+      expect(response.status()).toBe(403);
+    });
+  });
+
+  test.describe("as an admin", () => {
+    test.use({ storageState: ADMIN_STORAGE_STATE });
+
+    test("returns 404, and leaves an existing OPEN ticket in the batch untouched, when any id doesn't exist", async ({
+      request,
+    }) => {
+      const ticket = await createTicket("OPEN", null);
+
+      const response = await request.patch(`/api/tickets/assign`, {
+        data: { ticketIds: [ticket.id, crypto.randomUUID()], assignedToId: agentId },
+      });
+      expect(response.status()).toBe(404);
+
+      const getResponse = await request.get(`/api/tickets/${ticket.id}`);
+      expect((await getResponse.json()).assignedTo).toBeNull();
+    });
+
+    test("returns 409, and leaves every ticket in the batch untouched, when one of them isn't OPEN", async ({
+      request,
+    }) => {
+      const openTicket = await createTicket("OPEN", null);
+      const resolvedTicket = await createTicket("RESOLVED", null);
+
+      const response = await request.patch(`/api/tickets/assign`, {
+        data: { ticketIds: [openTicket.id, resolvedTicket.id], assignedToId: agentId },
+      });
+      expect(response.status()).toBe(409);
+
+      const getOpen = await request.get(`/api/tickets/${openTicket.id}`);
+      expect((await getOpen.json()).assignedTo).toBeNull();
+      const getResolved = await request.get(`/api/tickets/${resolvedTicket.id}`);
+      expect((await getResolved.json()).assignedTo).toBeNull();
+    });
+
+    test("returns 400 for an assignee id that doesn't exist", async ({ request }) => {
+      const ticket = await createTicket("OPEN", null);
+
+      const response = await request.patch(`/api/tickets/assign`, {
+        data: { ticketIds: [ticket.id], assignedToId: crypto.randomUUID() },
+      });
+      expect(response.status()).toBe(400);
+    });
+
+    test("assigns every OPEN ticket in the batch and persists the change", async ({ request }) => {
+      const ticketA = await createTicket("OPEN", null);
+      const ticketB = await createTicket("OPEN", null);
+
+      const response = await request.patch(`/api/tickets/assign`, {
+        data: { ticketIds: [ticketA.id, ticketB.id], assignedToId: agentId },
+      });
+      expect(response.status()).toBe(200);
+      expect(await response.json()).toEqual({ count: 2 });
+
+      const getA = await request.get(`/api/tickets/${ticketA.id}`);
+      expect((await getA.json()).assignedTo).toEqual({ id: agentId, name: "Agent" });
+      const getB = await request.get(`/api/tickets/${ticketB.id}`);
+      expect((await getB.json()).assignedTo).toEqual({ id: agentId, name: "Agent" });
+    });
+  });
+});
+
 test.describe("status-action round trip on the detail page", () => {
   test.use({ storageState: AGENT_STORAGE_STATE });
 
@@ -368,6 +569,25 @@ test.describe("status-action round trip on the detail page", () => {
     await page.reload();
     await expect(page.getByText("CLOSED", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Close", exact: true })).toHaveCount(0);
+  });
+});
+
+test.describe("assignment round trip on the detail page", () => {
+  test.use({ storageState: ADMIN_STORAGE_STATE });
+
+  test("picking an assignee updates the visible text and survives a reload", async ({ page }) => {
+    const ticket = await createTicket("OPEN", null);
+
+    await page.goto(`/tickets/${ticket.id}`);
+    await expect(page.getByRole("heading", { level: 1, name: ticket.subject })).toBeVisible();
+
+    await page.getByRole("button", { name: "Unassigned" }).click();
+    await page.getByRole("menuitemradio", { name: "Agent", exact: true }).click();
+
+    await expect(page.getByRole("button", { name: "Agent", exact: true })).toBeVisible();
+
+    await page.reload();
+    await expect(page.getByRole("button", { name: "Agent", exact: true })).toBeVisible();
   });
 });
 

@@ -79,7 +79,11 @@ test.describe("admin viewing the tickets list", () => {
   test("sees every ticket regardless of assignment, including an unassigned one", async ({
     page,
   }) => {
-    await page.goto("/tickets");
+    // Scoped by q=runId (see ticket-fixtures.ts's TicketFixtures.runId
+    // comment) so this assertion only sees this file's 3-row set, immune to
+    // concurrent ticket volume from other spec files (e.g.
+    // ticket-detail.spec.ts) pushing these rows past the 20-row page-1 cap.
+    await page.goto(`/tickets?q=${encodeURIComponent(fixtures.runId)}`);
 
     await expect(
       page.getByRole("row", { name: new RegExp(fixtures.oldest.subject) })
@@ -93,7 +97,8 @@ test.describe("admin viewing the tickets list", () => {
   });
 
   test("orders tickets newest-first by createdAt", async ({ page }) => {
-    await page.goto("/tickets");
+    // Scoped by q=runId — see comment on the test above.
+    await page.goto(`/tickets?q=${encodeURIComponent(fixtures.runId)}`);
 
     // Wait for the real fetch (not the skeleton) to settle before reading
     // table order.
@@ -247,7 +252,7 @@ test.describe("GET /api/tickets", () => {
     test("returns tickets not assigned to the admin — the admin path is unscoped, not self-scoped", async ({
       request,
     }) => {
-      const response = await request.get("/api/tickets");
+      const response = await request.get(`/api/tickets?q=${encodeURIComponent(fixtures.runId)}`);
       expect(response.status()).toBe(200);
 
       const body = await response.json();
@@ -270,7 +275,7 @@ test.describe("GET /api/tickets", () => {
     });
 
     test("sorts the returned tickets newest-first by createdAt", async ({ request }) => {
-      const response = await request.get("/api/tickets");
+      const response = await request.get(`/api/tickets?q=${encodeURIComponent(fixtures.runId)}`);
       const body = await response.json();
 
       const fixtureIds = [fixtures.oldest.id, fixtures.middle.id, fixtures.newest.id];

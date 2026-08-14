@@ -21,7 +21,10 @@ import { TicketConversation } from "@/components/tickets/ticket-conversation";
 import { TicketDetailSkeleton } from "@/components/tickets/ticket-detail-skeleton";
 import { useTicket } from "@/hooks/use-ticket";
 import { useUpdateTicketStatus } from "@/hooks/use-update-ticket-status";
-import { TicketStatus } from "@/lib/generated/prisma/enums";
+import { useAssignTicket } from "@/hooks/use-assign-ticket";
+import { useCurrentUser } from "@/hooks/use-current-user";
+import { useUsers } from "@/hooks/use-users";
+import { Role, TicketStatus } from "@/lib/generated/prisma/enums";
 
 // Owns the ticket query and page-level orchestration (which sections show,
 // in what order) for app/(main)/tickets/[id]/page.tsx. The header
@@ -33,10 +36,21 @@ import { TicketStatus } from "@/lib/generated/prisma/enums";
 // the rules the latter mirrors client-side, just to decide which buttons to
 // show — the API route is still the actual enforcement). The reply box
 // itself is UI-only: sending a real outbound email needs Gmail MIME/
-// threading support that doesn't exist yet in lib/gmail.ts.
+// threading support that doesn't exist yet in lib/gmail.ts. Same pattern
+// for the assign control rendered in the header: this component owns
+// useAssignTicket + the isAdmin/agents it needs, the header just renders
+// what it's handed (see app/api/tickets/[id]/assign/route.ts for the
+// actual admin-only/OPEN-only enforcement).
 export function TicketDetailView({ ticketId }: { ticketId: string }) {
   const { data: ticket, isLoading, isError } = useTicket(ticketId);
   const updateStatus = useUpdateTicketStatus(ticketId);
+  const assignTicket = useAssignTicket(ticketId);
+  const { user } = useCurrentUser();
+  const isAdmin = user?.role === Role.ADMIN;
+  // Only an Admin ever renders the assign control (see
+  // TicketDetailHeader), so agents skip this fetch entirely — see
+  // hooks/use-users.ts's `enabled` param comment.
+  const { users: agents } = useUsers({ enabled: isAdmin });
   const [closeDialogOpen, setCloseDialogOpen] = useState(false);
   // UI-only for now — no send mutation exists yet (see ticket-detail-page
   // plan: outbound Gmail send needs MIME/threading support that doesn't
@@ -70,7 +84,14 @@ export function TicketDetailView({ ticketId }: { ticketId: string }) {
     // Separator, gives each its own visual block instead of the previous
     // flat gap-6 stack.
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-10">
-      <TicketDetailHeader ticket={ticket} />
+      <TicketDetailHeader
+        ticket={ticket}
+        isAdmin={isAdmin}
+        agents={agents}
+        onAssign={(assignedToId) => assignTicket.mutate(assignedToId)}
+        assignPending={assignTicket.isPending}
+        assignError={assignTicket.error?.message ?? null}
+      />
 
       <Separator />
 

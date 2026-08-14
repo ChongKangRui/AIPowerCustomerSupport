@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import { renderHook } from "@testing-library/react";
 
 import { useTicketsTable } from "@/components/tickets/use-tickets-table";
-import type { TicketSortableField } from "@/models/ticket.model";
+import { TicketStatus } from "@/lib/generated/prisma/enums";
+import type { TicketListItem, TicketSortableField } from "@/models/ticket.model";
 
 // useTicketsTable's only real logic is translating TanStack Table's
 // internal shapes (a SortingState array, a 0-indexed pageIndex) to/from the
@@ -12,7 +13,12 @@ import type { TicketSortableField } from "@/models/ticket.model";
 // most likely spot for an off-by-one, so it gets direct coverage here,
 // independent of rendering (see tickets-table.test.tsx for the rendered/
 // click-driven half of this).
-function setup(overrides?: { page?: number; sortBy?: TicketSortableField; sortDir?: "asc" | "desc" }) {
+function setup(overrides?: {
+  page?: number;
+  sortBy?: TicketSortableField;
+  sortDir?: "asc" | "desc";
+  canAssign?: boolean;
+}) {
   const onSortChange = vi.fn();
   const onPageChange = vi.fn();
 
@@ -25,10 +31,25 @@ function setup(overrides?: { page?: number; sortBy?: TicketSortableField; sortDi
       sortDir: overrides?.sortDir ?? "desc",
       onSortChange,
       onPageChange,
+      canAssign: overrides?.canAssign ?? false,
+      agents: [],
+      rowSelection: {},
+      onRowSelectionChange: vi.fn(),
+      onAssignOne: vi.fn(),
+      assigningId: null,
     })
   );
 
   return { table: result.current, onSortChange, onPageChange };
+}
+
+// enableRowSelection's predicate only ever reads row.original off whatever
+// it's given — a minimal stub is enough; the rest of a real TanStack Row is
+// irrelevant to this pure-function test. `as never` sidesteps typing out a
+// full Row<...> just to satisfy the parameter type for a value this cast
+// immediately discards anyway.
+function ticketRow(status: TicketListItem["status"]) {
+  return { original: { status } } as never;
 }
 
 describe("useTicketsTable", () => {
@@ -90,6 +111,46 @@ describe("useTicketsTable", () => {
       table.options.onPaginationChange?.({ pageIndex: 0, pageSize: 20 });
 
       expect(onPageChange).toHaveBeenCalledWith(1);
+    });
+  });
+
+  it("getRowId uses the ticket's own id, not row index", () => {
+    // Selection is keyed by this id (tickets-view.tsx reads
+    // Object.keys(rowSelection) straight back out as the bulk-assign
+    // payload's ticketIds) — an index-based id would silently point at a
+    // different ticket after a page/sort change. See this hook's own
+    // comment on why.
+    const { table } = setup();
+
+    expect(table.options.getRowId?.({ id: "ticket-42" } as TicketListItem, 0)).toBe("ticket-42");
+  });
+
+  describe("enableRowSelection", () => {
+    it("allows an OPEN ticket when canAssign is true", () => {
+      const { table } = setup({ canAssign: true });
+      const predicate = table.options.enableRowSelection;
+
+      expect(typeof predicate === "function" ? predicate(ticketRow(TicketStatus.OPEN)) : predicate).toBe(
+        true
+      );
+    });
+
+    it("blocks a RESOLVED ticket even when canAssign is true — only OPEN tickets are assignable", () => {
+      const { table } = setup({ canAssign: true });
+      const predicate = table.options.enableRowSelection;
+
+      expect(
+        typeof predicate === "function" ? predicate(ticketRow(TicketStatus.RESOLVED)) : predicate
+      ).toBe(false);
+    });
+
+    it("blocks an OPEN ticket when canAssign is false — agents get no selection at all", () => {
+      const { table } = setup({ canAssign: false });
+      const predicate = table.options.enableRowSelection;
+
+      expect(typeof predicate === "function" ? predicate(ticketRow(TicketStatus.OPEN)) : predicate).toBe(
+        false
+      );
     });
   });
 });

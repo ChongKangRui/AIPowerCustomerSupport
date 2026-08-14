@@ -1,30 +1,41 @@
 "use client";
 
+import { useMemo } from "react";
 import Link from "next/link";
+import { ChevronsUpDown } from "lucide-react";
 
 import {
   createColumnHelper,
   rowPaginationFeature,
+  rowSelectionFeature,
   rowSortingFeature,
   tableFeatures,
   useTable,
   type PaginationState,
+  type RowSelectionState,
   type SortingState,
 } from "@tanstack/react-table";
 
 import { StatusBadge } from "@/components/tickets/status-badge";
+import { AssignMenu } from "@/components/tickets/assign-menu";
+import { Checkbox } from "@/components/ui/checkbox";
+import { TicketStatus } from "@/lib/generated/prisma/enums";
 import { TICKET_PAGE_SIZE, type TicketListItem, type TicketSortableField } from "@/models/ticket.model";
+import type { UserListItem } from "@/models/user.model";
 
 // @tanstack/react-table's npm `latest` tag is v9 — a rewrite of the v8 API
 // (useTable+tableFeatures instead of useReactTable, table.FlexRender
 // instead of a standalone flexRender import). This file uses the real v9
 // API, confirmed against that package's own docs, not v8 muscle memory.
 //
-// Only rowSortingFeature/rowPaginationFeature are registered — no
-// sortedRowModel/paginatedRowModel. Those two produce CLIENT-side sorted/
+// rowSortingFeature/rowPaginationFeature produce CLIENT-side sorted/
 // paginated row models; manualSorting/manualPagination below mean "trust
 // the server's order and slice as-is, don't recompute them here."
-const features = tableFeatures({ rowSortingFeature, rowPaginationFeature });
+// rowSelectionFeature is different: bulk/per-row assignment
+// (components/tickets/tickets-view.tsx) needs it, and it has no manual/
+// client-computed row model to opt out of — it's just selection *state*
+// (an id -> true map), independent of sorting/pagination.
+const features = tableFeatures({ rowSortingFeature, rowPaginationFeature, rowSelectionFeature });
 
 const columnHelper = createColumnHelper<typeof features, TicketListItem>();
 
@@ -36,85 +47,144 @@ const dateFormatter = new Intl.DateTimeFormat("en-US", {
   timeStyle: "short",
 });
 
-// Column ids for the three sortable columns are deliberately identical to
-// TicketSortableField's literal values ("subject" | "status" | "createdAt")
-// — TanStack's SortingState entries are `{ id, desc }`, so translating
-// between TanStack's sort state and the sortBy/sortDir the URL/API use below
-// is a direct mapping, not a lookup table.
-//
-// Customer/Assigned are display columns (composed from two fields / a
-// nullable relation, not a single value) with enableSorting: false — no
-// direct Prisma field to sort by, out of scope this round (see
-// app/api/tickets/route.ts). Cell rendering lives here, alongside each
-// column's identity/sortability, rather than in TicketsTable — that
-// component just wraps whatever a column renders in generic table chrome
-// (see its own comment).
-// columnHelper.columns([...]) (not a bare array) — it normalizes the union
-// of accessor/display column def shapes into the single ColumnDef[] type
-// useTable expects; a plain array literal here doesn't type-check because
-// TS can't widen each entry's distinct accessor value type on its own.
-// sortDescFirst: false on every sortable column — without it, TanStack
-// infers the first click's direction from each column's data (ascending for
-// strings, descending for numbers/dates), which is an implementation detail
-// we don't want driving UX, and createdAt's accessor value is itself a
-// string (an ISO date), which risks being misclassified. Explicit beats
-// inferred: every column's first click is ascending, per design decision #4.
-// Widths/cell-text styling live in each column's `meta` (headerClassName/
-// cellClassName, read generically by components/ui/data-table.tsx) rather
-// than a separate id-keyed lookup map — one less thing to keep in sync with
-// the column list above.
-const columns = columnHelper.columns([
-  columnHelper.accessor("subject", {
-    header: "Subject",
-    sortDescFirst: false,
-    // Links to the detail page (app/(main)/tickets/[id]/page.tsx). Just the
-    // subject text, not the whole row — TanStack's sortable-header click
-    // handling already lives one level up in DataTable, this is the only
-    // interactive element inside a data cell in this table.
-    cell: (info) => (
-      <Link href={`/tickets/${info.row.original.id}`} className="hover:underline">
-        {info.getValue()}
-      </Link>
-    ),
-    meta: { headerClassName: "w-[32%]", cellClassName: "truncate font-medium" },
-  }),
-  columnHelper.display({
-    id: "customer",
-    header: "Customer",
-    enableSorting: false,
-    cell: (info) => {
-      const ticket = info.row.original;
-      return ticket.customerName ? (
-        <div className="flex flex-col">
-          <span>{ticket.customerName}</span>
-          <span className="text-xs text-muted-foreground">{ticket.customerEmail}</span>
-        </div>
-      ) : (
-        ticket.customerEmail
-      );
-    },
-    meta: { headerClassName: "w-[26%]", cellClassName: "truncate" },
-  }),
-  columnHelper.accessor("status", {
-    header: "Status",
-    sortDescFirst: false,
-    cell: (info) => <StatusBadge status={info.getValue()} />,
-    meta: { headerClassName: "w-[14%]" },
-  }),
-  columnHelper.display({
-    id: "assignedTo",
-    header: "Assigned",
-    enableSorting: false,
-    cell: (info) => info.row.original.assignedTo?.name ?? "Unassigned",
-    meta: { headerClassName: "w-[16%]", cellClassName: "truncate text-muted-foreground" },
-  }),
-  columnHelper.accessor("createdAt", {
-    header: "Created",
-    sortDescFirst: false,
-    cell: (info) => dateFormatter.format(new Date(info.getValue())),
-    meta: { headerClassName: "w-[12%]", cellClassName: "text-muted-foreground" },
-  }),
-]);
+// Column defs now depend on props (canAssign/agents/onAssignOne/assigningId
+// govern the select column's presence and the assignedTo cell's
+// interactivity), so — unlike the old module-level `const columns` — this
+// is a function called (and memoized) from inside the hook below, not a
+// stable top-level constant.
+function buildColumns({
+  canAssign,
+  agents,
+  onAssignOne,
+  assigningId,
+}: {
+  canAssign: boolean;
+  agents: UserListItem[];
+  onAssignOne: (ticketId: string, assignedToId: string | null) => void;
+  assigningId: string | null;
+}) {
+  return columnHelper.columns([
+    // Only admins ever see this column at all — enableRowSelection (in
+    // useTicketsTable below) also gates on canAssign as a second layer, but
+    // there's no point rendering a checkbox column for agents in the first
+    // place.
+    ...(canAssign
+      ? [
+          columnHelper.display({
+            id: "select",
+            header: (info) => (
+              <Checkbox
+                checked={
+                  info.table.getIsAllPageRowsSelected()
+                    ? true
+                    : info.table.getIsSomePageRowsSelected()
+                      ? "indeterminate"
+                      : false
+                }
+                // Per the row-selection feature's own docs: bind the
+                // handler to onClick (not a boolean onCheckedChange), so
+                // Shift-range selection's modifier-key detection keeps
+                // working — see node_modules/@tanstack/table-core/skills/
+                // row-selection/SKILL.md's "Bypassing the range-selection
+                // handler" common mistake.
+                onClick={info.table.getToggleAllPageRowsSelectedHandler()}
+                aria-label="Select all open tickets on this page"
+              />
+            ),
+            cell: (info) => (
+              <Checkbox
+                checked={info.row.getIsSelected()}
+                disabled={!info.row.getCanSelect()}
+                onClick={info.row.getToggleSelectedHandler()}
+                aria-label={`Select ${info.row.original.subject}`}
+              />
+            ),
+            meta: { headerClassName: "w-10", cellClassName: "w-10" },
+          }),
+        ]
+      : []),
+    columnHelper.accessor("subject", {
+      header: "Subject",
+      sortDescFirst: false,
+      // Links to the detail page (app/(main)/tickets/[id]/page.tsx). Just the
+      // subject text, not the whole row — TanStack's sortable-header click
+      // handling already lives one level up in DataTable, this is the only
+      // interactive element inside a data cell in this table.
+      cell: (info) => (
+        <Link href={`/tickets/${info.row.original.id}`} className="hover:underline">
+          {info.getValue()}
+        </Link>
+      ),
+      meta: { headerClassName: canAssign ? "w-[28%]" : "w-[32%]", cellClassName: "truncate font-medium" },
+    }),
+    columnHelper.display({
+      id: "customer",
+      header: "Customer",
+      enableSorting: false,
+      cell: (info) => {
+        const ticket = info.row.original;
+        return ticket.customerName ? (
+          <div className="flex flex-col">
+            <span>{ticket.customerName}</span>
+            <span className="text-xs text-muted-foreground">{ticket.customerEmail}</span>
+          </div>
+        ) : (
+          ticket.customerEmail
+        );
+      },
+      meta: { headerClassName: canAssign ? "w-[22%]" : "w-[26%]", cellClassName: "truncate" },
+    }),
+    columnHelper.accessor("status", {
+      header: "Status",
+      sortDescFirst: false,
+      cell: (info) => <StatusBadge status={info.getValue()} />,
+      meta: { headerClassName: "w-[14%]" },
+    }),
+    columnHelper.display({
+      id: "assignedTo",
+      header: "Assigned",
+      enableSorting: false,
+      cell: (info) => {
+        const ticket = info.row.original;
+        const label = ticket.assignedTo?.name ?? "Unassigned";
+
+        // Read-only for agents, and for any ticket that isn't OPEN — same
+        // eligibility rule the server enforces
+        // (app/api/tickets/[id]/assign/route.ts), just mirrored here to
+        // decide whether to show the control at all.
+        if (!canAssign || ticket.status !== TicketStatus.OPEN) {
+          return label;
+        }
+
+        const isAssigning = assigningId === ticket.id;
+        return (
+          <AssignMenu
+            agents={agents}
+            value={ticket.assignedTo?.id ?? null}
+            onAssign={(assignedToId) => onAssignOne(ticket.id, assignedToId)}
+            disabled={isAssigning}
+          >
+            <button
+              type="button"
+              disabled={isAssigning}
+              className="inline-flex items-center gap-1 hover:text-foreground disabled:opacity-50"
+            >
+              {isAssigning ? "Assigning…" : label}
+              <ChevronsUpDown className="size-3.5 text-muted-foreground" />
+            </button>
+          </AssignMenu>
+        );
+      },
+      meta: { headerClassName: "w-[16%]", cellClassName: "truncate text-muted-foreground" },
+    }),
+    columnHelper.accessor("createdAt", {
+      header: "Created",
+      sortDescFirst: false,
+      cell: (info) => dateFormatter.format(new Date(info.getValue())),
+      meta: { headerClassName: "w-[12%]", cellClassName: "text-muted-foreground" },
+    }),
+  ]);
+}
 
 type UseTicketsTableArgs = {
   tickets: TicketListItem[];
@@ -124,6 +194,15 @@ type UseTicketsTableArgs = {
   sortDir: "asc" | "desc";
   onSortChange: (field: TicketSortableField, dir: "asc" | "desc") => void;
   onPageChange: (page: number) => void;
+  // Assignment — all admin-only, all no-ops (columns/state below just don't
+  // do anything selection-related) when canAssign is false. See
+  // tickets-view.tsx for where isAdmin/agents/rowSelection actually live.
+  canAssign: boolean;
+  agents: UserListItem[];
+  rowSelection: RowSelectionState;
+  onRowSelectionChange: (updater: RowSelectionState | ((old: RowSelectionState) => RowSelectionState)) => void;
+  onAssignOne: (ticketId: string, assignedToId: string | null) => void;
+  assigningId: string | null;
 };
 
 // Single shared TanStack Table instance, built once by TicketsView and
@@ -144,9 +223,20 @@ export function useTicketsTable({
   sortDir,
   onSortChange,
   onPageChange,
+  canAssign,
+  agents,
+  rowSelection,
+  onRowSelectionChange,
+  onAssignOne,
+  assigningId,
 }: UseTicketsTableArgs) {
   const sorting: SortingState = [{ id: sortBy, desc: sortDir === "desc" }];
   const pagination: PaginationState = { pageIndex: page - 1, pageSize: TICKET_PAGE_SIZE };
+
+  const columns = useMemo(
+    () => buildColumns({ canAssign, agents, onAssignOne, assigningId }),
+    [canAssign, agents, onAssignOne, assigningId]
+  );
 
   return useTable(
     {
@@ -159,7 +249,16 @@ export function useTicketsTable({
       enableSortingRemoval: false, // no "unsorted" state — backend always has a sortBy
       enableMultiSort: false, // backend only supports a single sort column
       autoResetPageIndex: false, // page is server/URL-driven, not table-internal
-      state: { sorting, pagination },
+      // Ticket id, not row index — row-selection's own docs flag index-based
+      // ids as a "HIGH" mistake under manual pagination (a selected "row 3"
+      // would silently mean a different ticket after paging/sorting).
+      // Ticket ids are also exactly what the bulk-assign payload needs, so
+      // Object.keys(rowSelection) in tickets-view.tsx doubles as the
+      // ticketIds array with no extra mapping.
+      getRowId: (ticket) => ticket.id,
+      enableRowSelection: (row) => canAssign && row.original.status === TicketStatus.OPEN,
+      state: { sorting, pagination, rowSelection },
+      onRowSelectionChange,
       onSortingChange: (updater) => {
         const [next] = typeof updater === "function" ? updater(sorting) : updater;
         if (next) onSortChange(next.id as TicketSortableField, next.desc ? "desc" : "asc");

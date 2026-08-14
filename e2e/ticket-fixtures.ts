@@ -92,6 +92,7 @@ export async function seedTicketFixtures(): Promise<TicketFixtures> {
     });
 
     return {
+      runId,
       agentId,
       otherAgentId,
       oldest,
@@ -268,6 +269,11 @@ export async function insertTicketMessage(
 export type TicketFixture = { id: string; subject: string };
 
 export type TicketFixtures = {
+  /** Unique per seedTicketFixtures() call, embedded in oldest/middle/newest's
+   *  subjects (and only those three) — scopes a `q=` filter to exactly this
+   *  file's 3-row set, immune to seedManyTicketFixtures's own runId and to
+   *  ticket rows other spec files create concurrently. */
+  runId: string;
   /** The seeded Agent's real User.id (e2e/seeded-users.ts's AGENT, by email). */
   agentId: string;
   /** A second, throwaway agent — proves "admin sees all" isn't accidentally

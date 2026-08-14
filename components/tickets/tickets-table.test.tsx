@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import type { RowSelectionState } from "@tanstack/react-table";
 
 import { TicketStatus } from "@/lib/generated/prisma/enums";
 import { TicketsTable } from "@/components/tickets/tickets-table";
 import { useTicketsTable } from "@/components/tickets/use-tickets-table";
 import type { TicketListItem, TicketSortableField } from "@/models/ticket.model";
+import type { UserListItem } from "@/models/user.model";
 
 // TicketsTable is pure/presentational — driven entirely by the `table`
 // instance prop (built by useTicketsTable(), see that hook's own comment),
@@ -43,11 +45,23 @@ function renderTicketsTable({
   sortBy = "createdAt",
   sortDir = "desc",
   onSortChange = vi.fn(),
+  canAssign = false,
+  agents = [],
+  rowSelection = {},
+  onRowSelectionChange = vi.fn(),
+  onAssignOne = vi.fn(),
+  assigningId = null,
 }: {
   tickets: TicketListItem[];
   sortBy?: TicketSortableField;
   sortDir?: "asc" | "desc";
   onSortChange?: (field: TicketSortableField, dir: "asc" | "desc") => void;
+  canAssign?: boolean;
+  agents?: UserListItem[];
+  rowSelection?: RowSelectionState;
+  onRowSelectionChange?: (updater: RowSelectionState | ((old: RowSelectionState) => RowSelectionState)) => void;
+  onAssignOne?: (ticketId: string, assignedToId: string | null) => void;
+  assigningId?: string | null;
 }) {
   function Wrapper() {
     const table = useTicketsTable({
@@ -58,6 +72,12 @@ function renderTicketsTable({
       sortDir,
       onSortChange,
       onPageChange: vi.fn(),
+      canAssign,
+      agents,
+      rowSelection,
+      onRowSelectionChange,
+      onAssignOne,
+      assigningId,
     });
     return <TicketsTable table={table} />;
   }
@@ -144,6 +164,97 @@ describe("TicketsTable", () => {
       expect(
         screen.getByRole("columnheader", { name: "Customer" }).getAttribute("aria-sort")
       ).toBeNull();
+    });
+  });
+
+  // canAssign (threaded through from tickets-view.tsx's isAdmin check) gates
+  // both the leading select column and the Assigned column's interactivity.
+  // The highest-stakes bug this whole feature could have is letting a
+  // non-OPEN ticket be selected/reassigned from the list, so that's what
+  // most of these cases target — see use-tickets-table.test.ts's
+  // enableRowSelection tests for the same guarantee at the predicate level,
+  // independent of rendering.
+  describe("assignment (canAssign: true)", () => {
+    const agents: UserListItem[] = [
+      { id: "agent-1", name: "Grace Hopper", email: "grace@example.com", role: "AGENT" as const, createdAt: "" },
+    ];
+
+    it("renders no select column or interactive assign control at all when canAssign is false", () => {
+      renderTicketsTable({ tickets: [ticket({ status: TicketStatus.OPEN })], canAssign: false });
+
+      expect(screen.queryByRole("checkbox")).toBeNull();
+      expect(screen.queryByRole("button", { name: /Unassigned/ })).toBeNull();
+    });
+
+    it("renders an enabled checkbox for an OPEN ticket, and a disabled one for a RESOLVED ticket", () => {
+      renderTicketsTable({
+        tickets: [
+          ticket({ id: "open-1", subject: "Open ticket", status: TicketStatus.OPEN }),
+          ticket({ id: "resolved-1", subject: "Resolved ticket", status: TicketStatus.RESOLVED }),
+        ],
+        canAssign: true,
+      });
+
+      expect(
+        (screen.getByRole("checkbox", { name: "Select Open ticket" }) as HTMLButtonElement).disabled
+      ).toBe(false);
+      expect(
+        (screen.getByRole("checkbox", { name: "Select Resolved ticket" }) as HTMLButtonElement).disabled
+      ).toBe(true);
+    });
+
+    it("clicking a row's checkbox reports that ticket as newly selected via onRowSelectionChange", () => {
+      const onRowSelectionChange = vi.fn();
+      renderTicketsTable({
+        tickets: [ticket({ id: "ticket-42", subject: "Refund request", status: TicketStatus.OPEN })],
+        canAssign: true,
+        onRowSelectionChange,
+      });
+
+      fireEvent.click(screen.getByRole("checkbox", { name: "Select Refund request" }));
+
+      expect(onRowSelectionChange).toHaveBeenCalled();
+      const updater = onRowSelectionChange.mock.calls[0][0];
+      const next = typeof updater === "function" ? updater({}) : updater;
+      expect(next).toEqual({ "ticket-42": true });
+    });
+
+    it("renders an interactive assign button (not plain text) in the Assigned column for an OPEN ticket", () => {
+      renderTicketsTable({
+        tickets: [ticket({ status: TicketStatus.OPEN, assignedTo: null })],
+        canAssign: true,
+        agents,
+      });
+
+      expect(screen.getByRole("button", { name: /Unassigned/ })).toBeTruthy();
+    });
+
+    it("renders plain read-only text (no button) in the Assigned column for a non-OPEN ticket, even when canAssign", () => {
+      renderTicketsTable({
+        tickets: [ticket({ status: TicketStatus.RESOLVED, assignedTo: null })],
+        canAssign: true,
+        agents,
+      });
+
+      expect(screen.queryByRole("button", { name: /Unassigned/ })).toBeNull();
+      expect(screen.getByText("Unassigned")).toBeTruthy();
+    });
+
+    it("picking an agent from a row's assign menu calls onAssignOne with that ticket's id and the agent's id", async () => {
+      const onAssignOne = vi.fn();
+      renderTicketsTable({
+        tickets: [ticket({ id: "ticket-42", status: TicketStatus.OPEN, assignedTo: null })],
+        canAssign: true,
+        agents,
+        onAssignOne,
+      });
+
+      // Radix's DropdownMenuTrigger opens on pointerdown, not click — see
+      // ticket-detail-header.test.tsx's "assign control" describe block.
+      fireEvent.pointerDown(screen.getByRole("button", { name: /Unassigned/ }), { button: 0 });
+      fireEvent.click(await screen.findByRole("menuitemradio", { name: "Grace Hopper" }));
+
+      expect(onAssignOne).toHaveBeenCalledWith("ticket-42", "agent-1");
     });
   });
 });

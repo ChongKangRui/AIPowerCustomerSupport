@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { ticketListQuerySchema, updateTicketStatusSchema } from "@/models/ticket.model";
+import {
+  assignTicketSchema,
+  bulkAssignTicketsSchema,
+  ticketListQuerySchema,
+  updateTicketStatusSchema,
+} from "@/models/ticket.model";
 
 // ticketListQuerySchema is the shared source of truth for GET /api/tickets'
 // query-param validation and tickets-view.tsx's client-side parse of the
@@ -117,5 +122,60 @@ describe("updateTicketStatusSchema", () => {
 
   it("rejects a missing status", () => {
     expect(() => updateTicketStatusSchema.parse({})).toThrow();
+  });
+});
+
+// assignTicketSchema/bulkAssignTicketsSchema are PATCH /api/tickets/[id]/assign
+// and PATCH /api/tickets/assign's body validators — mutation payloads, so (same
+// reasoning as updateTicketStatusSchema above) bad input must throw, not
+// silently degrade. Admin-only/OPEN-only eligibility is DB-dependent and
+// covered by e2e, not here — this only covers "is this a well-shaped request
+// body at all".
+describe("assignTicketSchema", () => {
+  it("accepts a non-empty assignedToId", () => {
+    const result = assignTicketSchema.parse({ assignedToId: "user-1" });
+
+    expect(result.assignedToId).toBe("user-1");
+  });
+
+  it("accepts null — unassigning", () => {
+    const result = assignTicketSchema.parse({ assignedToId: null });
+
+    expect(result.assignedToId).toBeNull();
+  });
+
+  it("rejects an empty-string assignedToId", () => {
+    expect(() => assignTicketSchema.parse({ assignedToId: "" })).toThrow();
+  });
+
+  it("rejects a missing assignedToId — null must be sent explicitly to unassign", () => {
+    expect(() => assignTicketSchema.parse({})).toThrow();
+  });
+});
+
+describe("bulkAssignTicketsSchema", () => {
+  it("accepts a non-empty ticketIds array with a non-empty assignedToId", () => {
+    const result = bulkAssignTicketsSchema.parse({
+      ticketIds: ["ticket-1", "ticket-2"],
+      assignedToId: "user-1",
+    });
+
+    expect(result).toEqual({ ticketIds: ["ticket-1", "ticket-2"], assignedToId: "user-1" });
+  });
+
+  it("accepts null assignedToId — bulk unassigning", () => {
+    const result = bulkAssignTicketsSchema.parse({ ticketIds: ["ticket-1"], assignedToId: null });
+
+    expect(result.assignedToId).toBeNull();
+  });
+
+  it("rejects an empty ticketIds array", () => {
+    expect(() =>
+      bulkAssignTicketsSchema.parse({ ticketIds: [], assignedToId: "user-1" })
+    ).toThrow();
+  });
+
+  it("rejects a missing assignedToId", () => {
+    expect(() => bulkAssignTicketsSchema.parse({ ticketIds: ["ticket-1"] })).toThrow();
   });
 });

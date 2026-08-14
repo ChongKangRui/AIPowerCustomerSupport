@@ -3,8 +3,9 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { TicketDetailView } from "@/components/tickets/ticket-detail-view";
-import { TicketStatus } from "@/lib/generated/prisma/enums";
+import { Role, TicketStatus } from "@/lib/generated/prisma/enums";
 import type { TicketDetail } from "@/models/ticket.model";
+import type { UserListItem } from "@/models/user.model";
 
 // apiClient is mocked at the module boundary, same pattern as
 // tickets-view.test.tsx — TicketDetailView's own network access (via
@@ -44,8 +45,32 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-function renderView(initialTicket: TicketDetail) {
-  apiClientMocks.get.mockImplementation(() => Promise.resolve({ data: initialTicket }));
+// TicketDetailView now also calls useCurrentUser() (GET /api/auth/session)
+// and useUsers() (GET /api/users) for the assign control's admin check and
+// agent list — apiClientMocks.get is one shared mock for every GET this
+// component makes, so it has to branch on the requested url instead of
+// blanket-resolving to the ticket shape (as it did before those hooks
+// existed) or the session/users calls would incorrectly resolve with
+// {id, subject, ...} and useCurrentUser would see `data.user` as undefined.
+// Defaults to isAdmin: false / agents: [] — every existing (pre-assignment)
+// test in this file relies on the assign control staying hidden.
+function renderView(
+  initialTicket: TicketDetail,
+  { isAdmin = false, agents = [] }: { isAdmin?: boolean; agents?: UserListItem[] } = {}
+) {
+  apiClientMocks.get.mockImplementation((url: string) => {
+    if (url === "/api/auth/session") {
+      return Promise.resolve({
+        data: isAdmin
+          ? { user: { id: "admin-1", name: "Admin", email: "admin@example.com", image: null, role: Role.ADMIN }, expires: "2099-01-01" }
+          : null,
+      });
+    }
+    if (url === "/api/users") {
+      return Promise.resolve({ data: { users: agents } });
+    }
+    return Promise.resolve({ data: initialTicket });
+  });
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -156,6 +181,47 @@ describe("TicketDetailView", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Mark Resolved" }));
 
     expect(await screen.findByText("Conflict")).toBeTruthy();
+  });
+
+  // Which-control-renders-when is TicketDetailHeader's own job, covered by
+  // ticket-detail-header.test.tsx's "assign control" describe block against
+  // plain props — what's left to prove here is the piece a prop-driven test
+  // can't reach: that picking an agent actually flows through
+  // useAssignTicket into a real PATCH call and back.
+  describe("assigning a ticket (admin only)", () => {
+    const agents: UserListItem[] = [
+      { id: "agent-1", name: "Grace Hopper", email: "grace@example.com", role: Role.AGENT, createdAt: "" },
+    ];
+
+    it("picking an agent PATCHes /api/tickets/{id}/assign with assignedToId", async () => {
+      apiClientMocks.patch.mockImplementation(() =>
+        Promise.resolve({ data: ticket({ assignedTo: { id: "agent-1", name: "Grace Hopper" } }) })
+      );
+      renderView(ticket({ status: TicketStatus.OPEN, assignedTo: null }), { isAdmin: true, agents });
+
+      const trigger = await screen.findByRole("button", { name: /Unassigned/ });
+      // Radix's DropdownMenuTrigger opens on pointerdown, not click — see
+      // ticket-detail-header.test.tsx's "assign control" describe block.
+      fireEvent.pointerDown(trigger, { button: 0 });
+      fireEvent.click(await screen.findByRole("menuitemradio", { name: "Grace Hopper" }));
+
+      await waitFor(() =>
+        expect(apiClientMocks.patch).toHaveBeenCalledWith("/api/tickets/ticket-1/assign", {
+          assignedToId: "agent-1",
+        })
+      );
+    });
+
+    it("shows the mutation's error message inline when the assign PATCH fails", async () => {
+      apiClientMocks.patch.mockImplementation(() => Promise.reject(new Error("Assignee not found")));
+      renderView(ticket({ status: TicketStatus.OPEN, assignedTo: null }), { isAdmin: true, agents });
+
+      const trigger = await screen.findByRole("button", { name: /Unassigned/ });
+      fireEvent.pointerDown(trigger, { button: 0 });
+      fireEvent.click(await screen.findByRole("menuitemradio", { name: "Grace Hopper" }));
+
+      expect(await screen.findByText("Assignee not found")).toBeTruthy();
+    });
   });
 
   describe("reply box (UI-only — not wired up yet)", () => {

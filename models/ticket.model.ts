@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import type { TicketStatus } from "@/lib/generated/prisma/enums";
+import type { TicketSelect } from "@/lib/generated/prisma/models";
 import type { TicketMessageItem } from "@/models/ticket-message.model";
 
 // The wire shape of a ticket as returned by GET /api/tickets (after
@@ -92,6 +93,46 @@ export type TicketDetail = TicketListItem & {
   messages: TicketMessageItem[];
 };
 
+// The Prisma `select` shape that produces TicketDetail above — a single
+// source of truth shared by every route that reads/writes a full ticket
+// (GET/PATCH app/api/tickets/[id]/route.ts, PATCH
+// app/api/tickets/[id]/assign/route.ts), so none of them can quietly drift
+// from what TicketDetail actually promises callers. Lives here rather than
+// in one of those route files since it's consumed by more than one of them
+// — a route file exporting something for a sibling route to import is the
+// wrong direction of dependency; this models file is the neutral shared
+// home, same as every other type/schema in it. `satisfies` (not a type
+// annotation) keeps the object's literal shape intact for Prisma's own
+// return-type inference at each call site, while still getting this
+// declaration itself checked against Prisma's real TicketSelect shape.
+export const ticketDetailSelect = {
+  id: true,
+  subject: true,
+  status: true,
+  customerEmail: true,
+  customerName: true,
+  assignedTo: { select: { id: true, name: true } },
+  resolvedByAi: true,
+  createdAt: true,
+  updatedAt: true,
+  resolvedAt: true,
+  closedAt: true,
+  summary: true,
+  category: true,
+  sentiment: true,
+  messages: {
+    orderBy: { createdAt: "asc" as const },
+    select: {
+      id: true,
+      direction: true,
+      authorType: true,
+      author: { select: { id: true, name: true } },
+      body: true,
+      createdAt: true,
+    },
+  },
+} satisfies TicketSelect;
+
 // Request-shape validation for PATCH /api/tickets/[id] — the only mutation
 // this endpoint supports right now (status transitions triggered by the
 // detail page's Mark Resolved/Close buttons). No `.catch()` fallback, unlike
@@ -106,3 +147,25 @@ export const updateTicketStatusSchema = z.object({
 });
 
 export type UpdateTicketStatusInput = z.infer<typeof updateTicketStatusSchema>;
+
+// Request-shape validation for PATCH /api/tickets/[id]/assign — single-
+// ticket manual assignment (admin-only, OPEN tickets only; both enforced
+// server-side in the route, not here). `assignedToId: null` means
+// "unassign" — nullable rather than optional since the client always sends
+// one or the other explicitly (no "leave unchanged" case for this field).
+export const assignTicketSchema = z.object({
+  assignedToId: z.string().min(1).nullable(),
+});
+
+export type AssignTicketInput = z.infer<typeof assignTicketSchema>;
+
+// Request-shape validation for PATCH /api/tickets/assign — the bulk
+// counterpart, used by the tickets list's multi-select toolbar
+// (components/tickets/tickets-view.tsx). Same assignedToId semantics as
+// assignTicketSchema above, plus the set of ticket ids to apply it to.
+export const bulkAssignTicketsSchema = z.object({
+  ticketIds: z.array(z.string().min(1)).min(1),
+  assignedToId: z.string().min(1).nullable(),
+});
+
+export type BulkAssignTicketsInput = z.infer<typeof bulkAssignTicketsSchema>;

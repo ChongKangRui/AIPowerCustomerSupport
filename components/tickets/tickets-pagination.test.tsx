@@ -27,6 +27,12 @@ function renderPagination({ page, total, onPageChange = vi.fn() }: {
       sortDir: "desc",
       onSortChange: vi.fn(),
       onPageChange,
+      canAssign: false,
+      agents: [],
+      rowSelection: {},
+      onRowSelectionChange: vi.fn(),
+      onAssignOne: vi.fn(),
+      assigningId: null,
     });
     return <TicketsPagination table={table} total={total} />;
   }

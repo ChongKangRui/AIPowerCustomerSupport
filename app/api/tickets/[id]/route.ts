@@ -4,38 +4,7 @@ import { ConflictError, NotFoundError, UnauthorizedError, withApiHandler } from 
 import { prisma } from "@/lib/prisma";
 import { Role, TicketStatus } from "@/lib/generated/prisma/enums";
 import type { Session } from "next-auth";
-import { updateTicketStatusSchema } from "@/models/ticket.model";
-
-// Same `select` shape for both GET and PATCH's response — a single source
-// of truth for what TicketDetail (models/ticket.model.ts) actually contains
-// on the wire, so the two handlers below can't quietly drift apart.
-const ticketDetailSelect = {
-  id: true,
-  subject: true,
-  status: true,
-  customerEmail: true,
-  customerName: true,
-  assignedTo: { select: { id: true, name: true } },
-  resolvedByAi: true,
-  createdAt: true,
-  updatedAt: true,
-  resolvedAt: true,
-  closedAt: true,
-  summary: true,
-  category: true,
-  sentiment: true,
-  messages: {
-    orderBy: { createdAt: "asc" as const },
-    select: {
-      id: true,
-      direction: true,
-      authorType: true,
-      author: { select: { id: true, name: true } },
-      body: true,
-      createdAt: true,
-    },
-  },
-};
+import { ticketDetailSelect, updateTicketStatusSchema } from "@/models/ticket.model";
 
 // Shared by GET and PATCH — mirrors GET /api/tickets's `where` scoping
 // (app/api/tickets/route.ts): Admins can load any ticket, Agents only their
