@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 
 import { Role } from "@/lib/generated/prisma/enums";
 import { filterUsers } from "@/components/users/filter-users";
-import type { UserListItem } from "@/app/api/users/route";
+import type { UserListItem } from "@/models/user.model";
 
 const admin: UserListItem = {
   id: "1",

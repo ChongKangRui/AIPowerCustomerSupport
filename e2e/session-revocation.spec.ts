@@ -2,32 +2,31 @@ import { expect, test, type Page } from "@playwright/test";
 
 import { ADMIN_STORAGE_STATE } from "./storage-state";
 
-// Coverage for session-revocation/logout redirect hardening, on top of what
+// Coverage for session-revocation redirect hardening, on top of what
 // e2e/logout.spec.ts already proves (a deliberate logout ends the session and
 // a subsequent /login-bound navigation stays there). This file targets what's
-// new here specifically:
+// new here specifically: app/(main)/layout.tsx now runs its own server-side
+// auth() check and redirects to /login when the session cookie no longer
+// points at a valid Session row — e.g. an admin deleting the account, which
+// calls destroyAllUserSessions (lib/session.ts). Previously a page like the
+// home page could render a logged-out-looking fallback in place instead of
+// actually leaving the page.
 //
-// 1. app/(main)/layout.tsx now runs its own server-side auth() check and
-//    redirects to /login when the session cookie no longer points at a valid
-//    Session row — e.g. an admin deleting the account, which calls
-//    destroyAllUserSessions (lib/session.ts). Previously a page like the home
-//    page could render a logged-out-looking fallback in place instead of
-//    actually leaving the page.
-// 2. components/navbar.tsx's logout handler now uses router.replace, not
-//    router.push, so the just-left protected page's history entry is
-//    overwritten rather than kept reachable via the browser's Back button.
-//
-// The other two navbar fixes described in the task (the useEffect that
-// redirects the instant useCurrentUser() resolves to no user while mounted,
-// and the pageshow/persisted bfcache-restore listener that calls
-// router.refresh()) aren't covered here as their own assertions: both are
-// client-side nuances of *how* a redirect that's already exercised below
-// eventually fires (a stale in-memory query resolving to null, and a real
-// browser bfcache restore respectively) rather than a distinct, reliably
-// triggerable observable outcome from a Playwright spec — forcing either
-// deterministically (without waitForTimeout-style polling, which this
-// project's conventions rule out) would be flaky or would require reaching
-// into internals no test in this suite otherwise touches. The
+// The other navbar fixes from the same effort are covered elsewhere, not
+// here: components/navbar.tsx's logout handler using router.replace (so the
+// just-left protected page's history entry is overwritten rather than kept
+// reachable via the browser's Back button) is now exercised by
+// e2e/logout.spec.ts's session-termination test. The remaining two — the
+// useEffect that redirects the instant useCurrentUser() resolves to no user
+// while mounted, and the pageshow/persisted bfcache-restore listener that
+// calls router.refresh() — still aren't covered by their own assertions
+// anywhere: both are client-side nuances of *how* a redirect that's already
+// exercised elsewhere eventually fires (a stale in-memory query resolving to
+// null, and a real browser bfcache restore respectively) rather than a
+// distinct, reliably triggerable observable outcome from a Playwright spec —
+// forcing either deterministically (without waitForTimeout-style polling,
+// which this project's conventions rule out) would be flaky or would require
+// reaching into internals no test in this suite otherwise touches. The
 // server-side-redirect-on-navigation case below is what's actually
 // deterministic to assert on, and is also the one the task calls out as most
 // reliably testable.
@@ -113,63 +112,6 @@ test.describe("session revocation", () => {
     // a logged-out-looking fallback in place, which was the pre-fix bug.
     await targetPage.goto("/");
     await expect(targetPage).toHaveURL(/\/login$/);
-
-    await targetContext.close();
-  });
-
-  test("logging out overwrites history via replace, so Back from /login does not reveal the protected page again", async ({
-    page,
-    browser,
-  }) => {
-    const email = `e2e-session-revocation-back-${test.info().testId}-${Date.now()}@example.com`;
-    const password = "supersecret123";
-    const name = "Session Revocation Back Button";
-
-    await page.goto("/users");
-    await createUserViaUi(page, { name, email, password });
-
-    const targetContext = await browser.newContext({ storageState: undefined });
-    const targetPage = await targetContext.newPage();
-    await targetPage.goto("/login");
-    await targetPage.getByLabel("Email").fill(email);
-    await targetPage.getByLabel("Password").fill(password);
-    await targetPage.getByRole("button", { name: "Log in" }).click();
-
-    await expect(targetPage).toHaveURL("/");
-    await expect(
-      targetPage.getByRole("heading", { name: new RegExp(`welcome back, ${name}`, "i") })
-    ).toBeVisible();
-
-    // Log out via the actual navbar control, same as e2e/logout.spec.ts.
-    await targetPage.getByRole("button", { name }).click();
-    await targetPage.getByRole("menuitem", { name: /log out/i }).click();
-    await expect(targetPage).toHaveURL("/login");
-
-    // Pressing Back must not land the user looking at the protected page's
-    // content again — components/navbar.tsx's logout handler uses
-    // router.replace, not router.push, specifically so the just-left "/"
-    // entry is overwritten rather than kept reachable this way. Assert on
-    // the final resting state/URL rather than intermediate navigation
-    // events — exact bfcache/back-button behavior in headless Chromium can
-    // vary, but the observable outcome (never showing the authenticated
-    // heading again) shouldn't.
-    await targetPage.goBack();
-    await expect(
-      targetPage.getByRole("heading", { name: new RegExp(`welcome back, ${name}`, "i") })
-    ).toBeHidden();
-    // Where exactly Back lands depends on how much history existed before
-    // this test's own navigations — and both real possibilities are
-    // correct here: login-form.tsx's post-login redirect and navbar.tsx's
-    // logout redirect *both* use router.replace, so "/" was never pushed
-    // as its own independently-reachable entry to begin with. In this
-    // fresh, nearly-history-less test context that means Back lands on
-    // the browser's own initial about:blank (whose pathname is literally
-    // "blank"); a real user with actual prior browsing history would
-    // instead land back on /login. Either way, the heading assertion
-    // above is the real proof — the protected page's content is never
-    // shown again.
-    const url = new URL(targetPage.url());
-    expect(["/login", "blank"]).toContain(url.pathname);
 
     await targetContext.close();
   });

@@ -23,6 +23,7 @@ Goal: empty-but-deployed skeleton, DB connected, auth working, nothing product-s
 - [x] `/api/health-check` route + `/health-check` page for a basic liveness check
 - [x] Playwright e2e setup: `playwright.config.ts` boots `next dev` on a separate port (3100, own `distDir` too — see `tech-stack.md` → Testing gotchas) against a dedicated test database; `e2e/global-setup.ts` creates that database if needed and resets+reseeds it (`prisma migrate reset --force` + explicit `prisma db seed`) before every run. Auth spec coverage (login, logout, session/route-protection redirects, open-redirect guard) written via the `e2e-test-writer` subagent — see `e2e/*.spec.ts`. `npm run test:e2e`.
 - [x] Vitest unit test setup: `vitest.config.mts` (jsdom + React Testing Library installed for later component tests), co-located `*.test.ts` convention — see `tech-stack.md` → Testing for the three interop gotchas (next-auth/`next/server` resolution, Prisma-at-import, `*.spec.ts` glob collision with Playwright). First pass covers pure logic only: `lib/safe-redirect.ts`, `models/auth.model.ts`, `lib/utils.ts`, `lib/api-handler.ts`'s `HttpError` hierarchy. `npm run test`.
+- [x] Second pass: React Testing Library component tests (`*.test.tsx`, same `npm run test`) for client-side/presentational behavior that was previously only exercised via a full e2e round trip — `app/login/login-form.test.tsx` (client-side validation, demo-account autofill), `components/users/user-form-dialog.test.tsx` (validation + pre-fill for both create/edit modes), `components/users/users-view.test.tsx` (search/role-filter wiring), `components/tickets/tickets-table.test.tsx` (Unassigned/customer-name rendering). `apiClient`/`next/navigation` are mocked rather than hit for real, wrapped in a fresh `QueryClient` per test. The corresponding e2e tests in `e2e/login.spec.ts`, `e2e/admin-create-user.spec.ts`, `e2e/admin-edit-user.spec.ts`, `e2e/users.spec.ts`, `e2e/tickets.spec.ts` were trimmed to drop what's now redundant, keeping only the paths that genuinely need a real login/DB round trip (success, 409/403 conflicts, server-verified state like "password really unchanged").
 - [x] Deploy skeleton to Vercel, confirm build + DB connection work end-to-end in production early (de-risks deployment issues later)
 
 ---
@@ -30,8 +31,8 @@ Goal: empty-but-deployed skeleton, DB connected, auth working, nothing product-s
 ## Phase 1 — Auth, Roles & User Management
 Goal: Admin/Agent access control and admin-only user management, building on Phase 0's login.
 
-- [ ] Route/middleware protection: admin-only pages (`/admin/*`) vs agent pages
-- [ ] Server Action/query scoping: agents only see tickets assigned to them; admins see all
+- [x] Admin-only page access control: optimistic cookie-presence check in `proxy.ts` (can't know the role without a DB call — database session strategy means the session cookie carries no role claim), authoritative role check + redirect done DB-side in the page itself (pattern established in `/users` — `app/(main)/users/page.tsx`). Deliberately not done in `proxy.ts` itself — Next.js's own docs (`node_modules/next/dist/docs/01-app/02-guides/authentication.md`) call for optimistic-only checks there, warning that DB reads on every matched request (including prefetches) cause performance issues. No dedicated `/admin/*` route exists; that matcher entry in `proxy.ts` is currently unused.
+- [x] Server Action/query scoping: agents only see tickets assigned to them; admins see all (`GET /api/tickets`, `app/api/tickets/route.ts` — `where: { assignedToId: session.user.id }` for agents, no filter for admins; the sole authoritative enforcement point, no page-level role check)
 - [x] Admin UI: list users (`/users` page + `GET /api/users`, admin-only, client-side search/role filter — see `components/users/users-view.tsx`) — edit role still pending
 - [x] Admin UI: create/invite an agent (`POST /api/users`, admin-only — "New user" modal in `components/users/create-user-dialog.tsx`, always creates role `AGENT`; validation shared via `models/user.model.ts`)
 - [x] Admin UI: edit a user's name/email/password (`PATCH /api/users/[id]`, admin-only — edit icon per row in `components/users/users-table.tsx` opens `components/users/edit-user-dialog.tsx`, sharing form UI with the create dialog via `components/users/user-form-dialog.tsx`; password left unchanged when blank; validation via `models/user.model.ts`'s `updateUserSchema`) — role is still not editable from this form, that remains a separate future action
@@ -57,23 +58,24 @@ Goal: real emails become tickets in the DB, and the app can reply back into the 
 
 ### Code
 - [x] `npm install googleapis`
-- [ ] `lib/gmail.ts` — OAuth2 client + `gmail` instance
-- [ ] Implement `EmailSyncState` read/write helpers (get/update stored `historyId`)
-- [ ] One-time bootstrap: call `gmail.users.getProfile` to get the starting `historyId`, store it
-- [ ] Build `pollGmailAndCreateTickets()`: `gmail.users.history.list` since last `historyId` → fetch each new message → decode headers/body
-- [ ] Map inbound message → ticket: new sender/thread creates a `Ticket` + `TicketMessage`; known `threadId` appends a `TicketMessage` to the existing ticket
+- [x] `lib/gmail.ts` — OAuth2 client + `gmail` instance (refresh-token flow, plain module-level singleton per `lib/gmail.ts`'s header comment — no hot-reload guard needed, it just wraps an HTTP client)
+- [x] Implement `EmailSyncState` read/write helpers (`getLastHistoryId`/`updateLastHistoryId`, upsert on `id: "gmail"`)
+- [x] One-time bootstrap: `bootstrapHistoryId()` calls `gmail.users.getProfile` to get the starting `historyId`, stores it (idempotent — no-ops if already bootstrapped; deliberately does NOT backfill old mail, just anchors "from now on")
+- [x] Build `pollGmailAndCreateTickets()`: pages `gmail.users.history.list` since last `historyId` → fetches each new message (`messages.get`) → decodes headers/MIME body (`parseGmailMessage`/`extractBodyText`, prefers `text/plain`, falls back to raw `text/html`) — watermark only advances once the whole poll succeeds, so a partial failure safely re-covers the same window next run
+- [x] Map inbound message → ticket: new `gmailThreadId` creates a `Ticket` + `TicketMessage`; known `threadId` appends a `TicketMessage` to the existing ticket (`processMessage()` in `lib/gmail.ts`). Idempotency check (`TicketMessage.gmailMessageId` lookup) before even calling `messages.get`; Prisma unique-constraint catch (`P2002`) as a concurrency backstop; self-sent mail (`SENT` label or `From === GMAIL_USER`) and messages that 404 on fetch (e.g. Gmail Chat entries in the history stream) are skipped, not fatal
+- [x] Manual test entrypoint `scripts/poll-gmail.ts` (`npm run gmail:poll`) since the cron route doesn't exist yet — verified against the real demo inbox: bootstrap, new-ticket creation, and the 404-skip path all confirmed working end-to-end. `lib/gmail.ts` currently still has some "TEMP DEBUG" console logging (search for that marker) left in on purpose for inbox/MIME exploration — to be stripped before this phase is considered fully done
 - [ ] Build `sendGmailReply()`: construct raw MIME message with `In-Reply-To`/`References` headers, send via `gmail.users.messages.send` with `threadId`
 - [ ] Route Handler `app/api/cron/poll-gmail/route.ts` — checks `Authorization: Bearer $CRON_SECRET`, calls `pollGmailAndCreateTickets()`
 - [ ] Register a free scheduled job on cron-job.org hitting the deployed poll endpoint every 1–2 min
-- [ ] End-to-end test: send a real email to the demo inbox → confirm a `Ticket` is created; send a reply from the app → confirm it appears threaded in Gmail
+- [ ] End-to-end test: send a real email to the demo inbox → confirm a `Ticket` is created; send a reply from the app → confirm it appears threaded in Gmail (read half spot-checked manually via `gmail:poll`; still need the same-thread-append and no-op-idempotency re-poll checks, plus the send half once `sendGmailReply()` exists)
 
 ---
 
 ## Phase 3 — Ticket Core: Data, List, Detail, Lifecycle
 Goal: tickets are fully manageable by a human, independent of AI.
 
-- [ ] Finalize `Ticket` status enum: `OPEN`, `RESOLVED`, `CLOSED`
-- [ ] Ticket list page: table with filtering (status, assigned agent) and sorting
+- [x] Finalize `Ticket` status enum: `OPEN`, `RESOLVED`, `CLOSED`
+- [x] Ticket list page: table, sorted newest-first, role-scoped (`/tickets` page + `GET /api/tickets` — see `components/tickets/*`, `hooks/use-tickets.ts`); filtering (status, assigned agent) still pending — no filter UI/query params yet
 - [ ] Ticket detail page: full conversation thread (all `TicketMessage`s in order)
 - [ ] Manual agent actions on ticket detail: reply, mark Resolved, mark Closed (permanent)
 - [ ] Lifecycle rule: customer reply to a `RESOLVED` ticket → reopen to `OPEN`, notify/assign a human

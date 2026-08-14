@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { ADMIN, AGENT } from "./seeded-users";
+import { ADMIN } from "./seeded-users";
 import { ADMIN_STORAGE_STATE } from "./storage-state";
 
 // Coverage for the admin "edit user" flow: the "Edit user" mode of
@@ -13,6 +13,15 @@ import { ADMIN_STORAGE_STATE } from "./storage-state";
 // edit-specific behavior: pre-filling, the "blank password = unchanged"
 // contract, the duplicate-email 409, and the self-edit ["session"]
 // invalidation that refreshes the navbar.
+//
+// The pure "opens pre-filled with name/email, empty password field" render
+// assertion has moved to components/users/user-form-dialog.test.tsx's
+// "UserFormDialog — edit mode" describe block — it only needs a `user` prop,
+// not a real row/login/dev server. The first test below keeps its own name
+// for the row it creates and edits, but only asserts on the dialog to drive
+// into the actual behavior under test: that saving with the password field
+// left blank really does leave the password hash unchanged server-side,
+// which only a real backend can prove.
 //
 // Every test loads the shared ADMIN storageState snapshot (e2e/auth.setup.ts)
 // rather than driving a UI login for the *editing* steps — the login flow
@@ -57,42 +66,33 @@ async function createUserViaUi(
 test.describe("admin editing a user from /users", () => {
   test.use({ storageState: ADMIN_STORAGE_STATE });
 
-  test("opens pre-filled with the row's current name, email, and an empty password field", async ({
+  test("opens pre-filled with the row's current name/email and an empty password field, and saving with the password left blank leaves it unchanged", async ({
     page,
+    browser,
   }) => {
-    await page.goto("/users");
-    await expect(page.getByRole("cell", { name: AGENT.email, exact: true })).toBeVisible();
+    const email = `e2e-edit-user-nopass-${test.info().testId}-${Date.now()}@example.com`;
+    const originalName = "Edit Test Original Name";
+    const originalPassword = "originalpass123";
+    const updatedName = "Edit Test No Password Change";
 
-    const agentRow = page.getByRole("row", { name: new RegExp(AGENT.email) });
+    await page.goto("/users");
+    await createUserViaUi(page, { name: originalName, email, password: originalPassword });
+
+    const row = page.getByRole("row", { name: new RegExp(email) });
     // Anchored at the start (not a bare /edit/i) — since the delete-user
     // feature added a same-row Delete button, a loose "contains edit"
     // match would also catch it for any row whose fixture name happens to
     // contain the word "Edit" (several below do, e.g. "Edit Test New
     // Password" → accessible name "Delete Edit Test New Password").
-    await agentRow.getByRole("button", { name: /^edit /i }).click();
-
-    const dialog = page.getByRole("dialog", { name: "Edit user" });
-    await expect(dialog).toBeVisible();
-    await expect(dialog.getByLabel("Name")).toHaveValue(AGENT.name);
-    await expect(dialog.getByLabel("Email")).toHaveValue(AGENT.email);
-    await expect(dialog.getByLabel("New password")).toHaveValue("");
-  });
-
-  test("editing a name with the password field left blank leaves the password unchanged", async ({
-    page,
-    browser,
-  }) => {
-    const email = `e2e-edit-user-nopass-${test.info().testId}-${Date.now()}@example.com`;
-    const originalPassword = "originalpass123";
-    const updatedName = "Edit Test No Password Change";
-
-    await page.goto("/users");
-    await createUserViaUi(page, { name: "Edit Test Original Name", email, password: originalPassword });
-
-    const row = page.getByRole("row", { name: new RegExp(email) });
     await row.getByRole("button", { name: /^edit /i }).click();
 
+    // The pre-fill assertions themselves (name/email/blank-password values
+    // on open) now live in components/users/user-form-dialog.test.tsx's
+    // "opens pre-filled..." test — what this test actually needs to prove is
+    // the server-side "blank password = unchanged" contract below, which
+    // does need a real backend and login.
     const dialog = page.getByRole("dialog", { name: "Edit user" });
+
     await dialog.getByLabel("Name").fill(updatedName);
     // Password field deliberately left blank.
     await dialog.getByRole("button", { name: "Save changes" }).click();

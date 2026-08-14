@@ -5,7 +5,11 @@ import { useQuery } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api-client";
 import type { Role } from "@/lib/generated/prisma/enums";
 
-export type CurrentUser = {
+// Not exported — nothing outside this file imports it by name; every
+// consumer (use-update-user.ts, login-form.tsx, navbar.tsx, etc.) just
+// destructures `user` from useCurrentUser()'s return value and lets
+// TypeScript infer the shape.
+type CurrentUser = {
   id: string;
   name: string | null;
   email: string | null;

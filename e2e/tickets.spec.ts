@@ -1,0 +1,228 @@
+import { expect, test } from "@playwright/test";
+
+import { TicketStatus } from "@/lib/generated/prisma/enums";
+import { AGENT } from "./seeded-users";
+import { ADMIN_STORAGE_STATE, AGENT_STORAGE_STATE } from "./storage-state";
+import { seedTicketFixtures, type TicketFixtures } from "./ticket-fixtures";
+
+// Coverage for the ticket list feature: app/(main)/tickets/page.tsx,
+// components/tickets/tickets-view.tsx + tickets-table.tsx, hooks/use-tickets.ts,
+// and GET /api/tickets (app/api/tickets/route.ts). No search/filter UI exists
+// yet (implementation-plan.md Phase 3 — that's a later increment), so this
+// file only covers listing, server-side sort order, and role-scoped
+// visibility — the actual correctness property this feature exists for.
+// There's also no page-level role redirect (unlike /users): any authenticated
+// user can view /tickets, and GET /api/tickets' `where` clause is the sole
+// authoritative enforcement of "agents only see their own assigned tickets"
+// (see that route's comment) — so "access control" below only has an
+// unauthenticated-visitor case, not an agent-redirected-away one.
+//
+// Test data: tickets are Gmail-inbound only in production — there's no
+// creation UI or API to drive, and prisma/seed.ts only seeds the two demo
+// users (see e2e/seeded-users.ts). e2e/ticket-fixtures.ts writes three
+// ticket rows directly via Prisma (own connection to the test database —
+// see that file's comment for why it can't reuse lib/prisma.ts's singleton):
+// one assigned to the seeded Agent, one unassigned, one assigned to a
+// throwaway second agent, with distinct/staggered createdAt timestamps. That
+// single fixture set is enough to cover sorting and both ends of
+// role-scoping (including proving "admin sees all" isn't accidentally
+// "admin sees own"), without needing separate rows per test.
+//
+// The "Unassigned" rendering case (a ticket with assignedTo: null showing
+// the literal text "Unassigned" in its row) has moved to
+// components/tickets/tickets-table.test.tsx — TicketsTable is pure/
+// presentational, driven only by its `tickets` prop, so that's cheap to
+// cover directly with a fixture object instead of a real seeded DB row and
+// full login/browser round trip. What stays here is what only a real
+// backend can prove: the server-side sort order and role-scoping GET
+// /api/tickets actually returns, and the page rendering that real data.
+//
+// Shared-state isolation: unlike e2e/users.spec.ts (whose read-only tests
+// are safe to run fully in parallel against the two fixed seeded users),
+// this file's assertions depend on knowing the *exact* fixture set — an
+// admin-sees-all test can't tell "sees every ticket" from "sees every ticket
+// except the ones some other worker's redundant reseed created" if the fixture
+// were re-created once per worker. `mode: "serial"` below forces this whole
+// file into a single worker, so seedTicketFixtures() runs exactly once (from
+// the top-level beforeAll), same DB the entire file's tests then only read.
+test.describe.configure({ mode: "serial" });
+
+let fixtures: TicketFixtures;
+
+test.beforeAll(async () => {
+  fixtures = await seedTicketFixtures();
+});
+
+test.describe("admin viewing the tickets list", () => {
+  test.use({ storageState: ADMIN_STORAGE_STATE });
+
+  test("sees every ticket regardless of assignment, including an unassigned one", async ({
+    page,
+  }) => {
+    await page.goto("/tickets");
+
+    await expect(
+      page.getByRole("row", { name: new RegExp(fixtures.oldest.subject) })
+    ).toBeVisible();
+    await expect(
+      page.getByRole("row", { name: new RegExp(fixtures.middle.subject) })
+    ).toBeVisible();
+    await expect(
+      page.getByRole("row", { name: new RegExp(fixtures.newest.subject) })
+    ).toBeVisible();
+  });
+
+  test("orders tickets newest-first by createdAt", async ({ page }) => {
+    await page.goto("/tickets");
+
+    // Wait for the real fetch (not the skeleton) to settle before reading
+    // table order.
+    await expect(
+      page.getByRole("row", { name: new RegExp(fixtures.newest.subject) })
+    ).toBeVisible();
+
+    // Data rows only — role="row" also matches the <thead> header row, which
+    // has no role="cell" children (its cells are columnheaders), so this
+    // filter excludes it without needing a raw CSS selector.
+    const dataRows = page.getByRole("row").filter({ has: page.getByRole("cell") });
+    const rowTexts = await dataRows.allTextContents();
+
+    const oldestIndex = rowTexts.findIndex((text) => text.includes(fixtures.oldest.subject));
+    const middleIndex = rowTexts.findIndex((text) => text.includes(fixtures.middle.subject));
+    const newestIndex = rowTexts.findIndex((text) => text.includes(fixtures.newest.subject));
+
+    expect(oldestIndex).toBeGreaterThanOrEqual(0);
+    expect(middleIndex).toBeGreaterThanOrEqual(0);
+    expect(newestIndex).toBeGreaterThanOrEqual(0);
+
+    // Newest createdAt renders first (lowest index = topmost row).
+    expect(newestIndex).toBeLessThan(middleIndex);
+    expect(middleIndex).toBeLessThan(oldestIndex);
+  });
+});
+
+test.describe("agent viewing the tickets list", () => {
+  test.use({ storageState: AGENT_STORAGE_STATE });
+
+  test("sees only tickets assigned to them — not unassigned ones, not another agent's", async ({
+    page,
+  }) => {
+    await page.goto("/tickets");
+
+    await expect(
+      page.getByRole("row", { name: new RegExp(fixtures.oldest.subject) })
+    ).toBeVisible();
+    await expect(
+      page.getByRole("row", { name: new RegExp(fixtures.middle.subject) })
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("row", { name: new RegExp(fixtures.newest.subject) })
+    ).toHaveCount(0);
+  });
+});
+
+test.describe("access control", () => {
+  test("an unauthenticated visitor is redirected to /login with a callbackUrl back to /tickets", async ({
+    page,
+  }) => {
+    // No storageState loaded — proxy.ts's cookie-presence check fires here.
+    // Unlike e2e/users.spec.ts, there's no follow-up "authenticated agent
+    // redirected away" case: /tickets has no role gate (see this file's
+    // top comment and app/(main)/tickets/page.tsx).
+    await page.goto("/tickets");
+
+    const url = new URL(page.url());
+    expect(url.pathname).toBe("/login");
+    expect(url.searchParams.get("callbackUrl")).toBe("/tickets");
+  });
+});
+
+test.describe("GET /api/tickets", () => {
+  test("returns 401 with no session", async ({ request }) => {
+    const response = await request.get("/api/tickets");
+    expect(response.status()).toBe(401);
+  });
+
+  test.describe("as an authenticated agent", () => {
+    test.use({ storageState: AGENT_STORAGE_STATE });
+
+    test("returns only tickets assigned to that agent, in the documented shape", async ({
+      request,
+    }) => {
+      const response = await request.get("/api/tickets");
+      expect(response.status()).toBe(200);
+
+      const body = await response.json();
+      expect(Array.isArray(body.tickets)).toBe(true);
+
+      const ids = body.tickets.map((ticket: { id: string }) => ticket.id);
+      expect(ids).toContain(fixtures.oldest.id);
+      expect(ids).not.toContain(fixtures.middle.id);
+      expect(ids).not.toContain(fixtures.newest.id);
+
+      // Scoping correctness, not just presence/absence of our own fixtures —
+      // every ticket this agent gets back must really be their own,
+      // regardless of what else exists in the table.
+      for (const ticket of body.tickets) {
+        expect(ticket.assignedTo?.id).toBe(fixtures.agentId);
+      }
+
+      const ownTicket = body.tickets.find(
+        (ticket: { id: string }) => ticket.id === fixtures.oldest.id
+      );
+      expect(ownTicket).toEqual(
+        expect.objectContaining({
+          id: fixtures.oldest.id,
+          subject: fixtures.oldest.subject,
+          status: TicketStatus.OPEN,
+          customerEmail: expect.any(String),
+          customerName: null,
+          assignedTo: { id: fixtures.agentId, name: AGENT.name },
+          resolvedByAi: false,
+          createdAt: expect.any(String),
+        })
+      );
+    });
+  });
+
+  test.describe("as an authenticated admin", () => {
+    test.use({ storageState: ADMIN_STORAGE_STATE });
+
+    test("returns tickets not assigned to the admin — the admin path is unscoped, not self-scoped", async ({
+      request,
+    }) => {
+      const response = await request.get("/api/tickets");
+      expect(response.status()).toBe(200);
+
+      const body = await response.json();
+      expect(body.tickets).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: fixtures.oldest.id,
+            assignedTo: { id: fixtures.agentId, name: AGENT.name },
+          }),
+          expect.objectContaining({
+            id: fixtures.middle.id,
+            assignedTo: null,
+          }),
+          expect.objectContaining({
+            id: fixtures.newest.id,
+            assignedTo: { id: fixtures.otherAgentId, name: "Other Agent" },
+          }),
+        ])
+      );
+    });
+
+    test("sorts the returned tickets newest-first by createdAt", async ({ request }) => {
+      const response = await request.get("/api/tickets");
+      const body = await response.json();
+
+      const fixtureIds = [fixtures.oldest.id, fixtures.middle.id, fixtures.newest.id];
+      const orderedIds = body.tickets
+        .map((ticket: { id: string }) => ticket.id)
+        .filter((id: string) => fixtureIds.includes(id));
+
+      expect(orderedIds).toEqual([fixtures.newest.id, fixtures.middle.id, fixtures.oldest.id]);
+    });
+  });
+});

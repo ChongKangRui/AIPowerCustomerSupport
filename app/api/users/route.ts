@@ -6,14 +6,6 @@ import { prisma } from "@/lib/prisma";
 import { Role } from "@/lib/generated/prisma/enums";
 import { createUserSchema } from "@/models/user.model";
 
-export type UserListItem = {
-  id: string;
-  name: string | null;
-  email: string;
-  role: Role;
-  createdAt: string;
-};
-
 // GET /api/users — admin-only. Returns every user for the admin "Users" page.
 //
 // No query params. withApiHandler resolves the session once and hands it to

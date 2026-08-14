@@ -8,14 +8,25 @@ import { ADMIN_STORAGE_STATE, AGENT_STORAGE_STATE } from "./storage-state";
 // components/users/users-view.tsx + users-table.tsx, hooks/use-users.ts, and
 // GET/POST /api/users (app/api/users/route.ts).
 //
-// Everything in *this file* is read-only (listing, search/filter, and
-// access control — including POST /api/users' access control, which is
-// exercised here rather than duplicated elsewhere), so nothing here writes
-// rows another parallel test could race on, and every test loads a shared
-// storageState snapshot (e2e/auth.setup.ts) rather than logging in through
-// the UI. The "New user" dialog's actual create flow (validation, success,
-// duplicate-email) does write rows and lives in its own file,
-// e2e/admin-create-user.spec.ts, with its own isolation notes.
+// Everything in *this file* is read-only (listing and access control —
+// including POST /api/users' access control, which is exercised here rather
+// than duplicated elsewhere), so nothing here writes rows another parallel
+// test could race on, and every test loads a shared storageState snapshot
+// (e2e/auth.setup.ts) rather than logging in through the UI. The "New user"
+// dialog's actual create flow (validation, success, duplicate-email) does
+// write rows and lives in its own file, e2e/admin-create-user.spec.ts, with
+// its own isolation notes.
+//
+// The search/role-filter tests that used to live here (typing an email into
+// "Search users" narrowing the table, picking a role from "Filter by role")
+// have moved to components/users/users-view.test.tsx, which covers the same
+// wiring against an in-memory fixture list instead of real seeded/
+// authenticated DB rows. The underlying filter *logic* itself (case-
+// insensitivity, combining search + role, null-name handling) already has
+// its own exhaustive unit coverage in components/users/filter-users.test.ts.
+// What stays here — "sees the seeded admin and agent among the listed
+// users" — is the one test that still needs a real GET /api/users round
+// trip against actual seeded, authenticated data to mean anything.
 //
 // The page-level admin-vs-agent redirect is also spot-checked (more briefly)
 // in e2e/session-redirect.spec.ts alongside the rest of that file's
@@ -35,47 +46,6 @@ test.describe("admin viewing the users list", () => {
     await expect(page.getByRole("cell", { name: AGENT.email, exact: true })).toBeVisible();
   });
 
-  test("searching by a unique email narrows the list to that user, and clearing it restores the full list", async ({
-    page,
-  }) => {
-    await page.goto("/users");
-    // Wait for the initial, unfiltered fetch to resolve before interacting —
-    // otherwise a fill() during the "Loading users…" state would land before
-    // the input/table it targets even exist yet.
-    await expect(page.getByRole("cell", { name: AGENT.email, exact: true })).toBeVisible();
-
-    const search = page.getByLabel("Search users");
-
-    // Full email is unique among any dataset size — safer than filtering by
-    // "Admin"/"Agent" (the seeded names), which could collide with other
-    // rows if the test DB ever grows beyond the two seeded accounts.
-    await search.fill(AGENT.email);
-    await expect(page.getByRole("cell", { name: AGENT.email, exact: true })).toBeVisible();
-    await expect(page.getByRole("cell", { name: ADMIN.email, exact: true })).toHaveCount(0);
-
-    await search.fill("");
-    await expect(page.getByRole("cell", { name: ADMIN.email, exact: true })).toBeVisible();
-    await expect(page.getByRole("cell", { name: AGENT.email, exact: true })).toBeVisible();
-  });
-
-  test("filtering by role shows only rows with that role", async ({ page }) => {
-    await page.goto("/users");
-    await expect(page.getByRole("cell", { name: AGENT.email, exact: true })).toBeVisible();
-
-    const roleFilter = page.getByLabel("Filter by role");
-
-    await roleFilter.selectOption(Role.ADMIN);
-    await expect(page.getByRole("cell", { name: ADMIN.email, exact: true })).toBeVisible();
-    await expect(page.getByRole("cell", { name: AGENT.email, exact: true })).toHaveCount(0);
-
-    await roleFilter.selectOption(Role.AGENT);
-    await expect(page.getByRole("cell", { name: AGENT.email, exact: true })).toBeVisible();
-    await expect(page.getByRole("cell", { name: ADMIN.email, exact: true })).toHaveCount(0);
-
-    await roleFilter.selectOption("ALL");
-    await expect(page.getByRole("cell", { name: ADMIN.email, exact: true })).toBeVisible();
-    await expect(page.getByRole("cell", { name: AGENT.email, exact: true })).toBeVisible();
-  });
 });
 
 test.describe("access control", () => {

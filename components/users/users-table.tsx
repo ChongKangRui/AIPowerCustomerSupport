@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { DeleteUserDialog } from "@/components/users/delete-user-dialog";
 import { EditUserDialog } from "@/components/users/edit-user-dialog";
 import { Role } from "@/lib/generated/prisma/enums";
-import type { UserListItem } from "@/app/api/users/route";
+import type { UserListItem } from "@/models/user.model";
 
 const dateFormatter = new Intl.DateTimeFormat("en-US", { dateStyle: "medium" });
 

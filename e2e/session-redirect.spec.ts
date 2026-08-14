@@ -1,14 +1,21 @@
 import { expect, test } from "@playwright/test";
 
 import { ADMIN, AGENT } from "./seeded-users";
-import { ADMIN_STORAGE_STATE, AGENT_STORAGE_STATE } from "./storage-state";
+import { AGENT_STORAGE_STATE } from "./storage-state";
 
 // Covers proxy.ts's cookie-presence route protection, lib/safe-redirect.ts's
 // open-redirect guard (both the "redirected to /login" and "logged in, now
-// redirected" ends of that guard), and the two server-side "already have a
-// session, don't show me this page" redirects (app/login/page.tsx and
-// app/(main)/users/page.tsx). All read-only: nothing here writes ticket/user
-// data, so it's safe to run fully in parallel with every other spec.
+// redirected" ends of that guard, exercised on both the login-form and
+// login-page call sites), and app/login/page.tsx's server-side "already have
+// a session, don't show me this page" redirect. All read-only: nothing here
+// writes ticket/user data, so it's safe to run fully in parallel with every
+// other spec.
+//
+// The admin-only /users page's own server-side redirect
+// (app/(main)/users/page.tsx) is NOT covered here — that page-level
+// access-control check (agent redirected home, admin allowed through) lives
+// solely in e2e/users.spec.ts's "access control" describe block now, which
+// this file used to duplicate.
 
 test.describe("unauthenticated route protection (proxy.ts)", () => {
   // proxy.ts only matches "/", "/dashboard/:path*", "/tickets/:path*",
@@ -104,25 +111,5 @@ test.describe("already-authenticated agent", () => {
     await expect(
       page.getByRole("heading", { name: new RegExp(`welcome back, ${AGENT.name}`, "i") })
     ).toBeVisible();
-  });
-
-  test("an agent visiting the admin-only /users page is redirected home", async ({ page }) => {
-    // /users isn't in proxy.ts's matcher — this is the page's own
-    // session+role check (app/(main)/users/page.tsx), not proxy.ts.
-    await page.goto("/users");
-
-    await expect(page).toHaveURL("/");
-    await expect(page.getByRole("heading", { name: "Users" })).toHaveCount(0);
-  });
-});
-
-test.describe("already-authenticated admin", () => {
-  test.use({ storageState: ADMIN_STORAGE_STATE });
-
-  test("an admin can reach the admin-only /users page directly", async ({ page }) => {
-    await page.goto("/users");
-
-    await expect(page).toHaveURL("/users");
-    await expect(page.getByRole("heading", { name: "Users" })).toBeVisible();
   });
 });

@@ -18,7 +18,7 @@ import { Input } from "@/components/ui/input";
 import { useCreateUser } from "@/hooks/use-create-user";
 import { useUpdateUser } from "@/hooks/use-update-user";
 import { createUserSchema, updateUserSchema } from "@/models/user.model";
-import type { UserListItem } from "@/app/api/users/route";
+import type { UserListItem } from "@/models/user.model";
 
 type UserFormValues = { name: string; email: string; password: string };
 

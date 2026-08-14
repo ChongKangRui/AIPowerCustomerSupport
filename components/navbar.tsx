@@ -96,6 +96,15 @@ export function Navbar() {
           AI Customer Support
         </Link>
 
+        {user && (
+          <Link
+            href="/tickets"
+            className="text-sm font-medium text-muted-foreground hover:text-foreground"
+          >
+            Tickets
+          </Link>
+        )}
+
         {user?.role === Role.ADMIN && (
           <Link
             href="/users"

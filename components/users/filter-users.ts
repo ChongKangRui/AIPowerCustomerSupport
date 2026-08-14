@@ -1,5 +1,5 @@
 import type { Role } from "@/lib/generated/prisma/enums";
-import type { UserListItem } from "@/app/api/users/route";
+import type { UserListItem } from "@/models/user.model";
 
 // "ALL" is a UI-only sentinel meaning "no role filter" — not a real Role,
 // so it's added alongside the enum rather than being part of it.

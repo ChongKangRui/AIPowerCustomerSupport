@@ -13,6 +13,15 @@ import { ADMIN_STORAGE_STATE } from "./storage-state";
 // unauthenticated/non-admin access control — this file is scoped to the
 // happy/validation/conflict paths of the dialog itself.
 //
+// The client-side validation case (invalid name/email/password blocking a
+// submit with zero requests reaching the server) has moved to
+// components/users/user-form-dialog.test.tsx's "UserFormDialog — create
+// mode" describe block — react-hook-form + zodResolver blocking a bad submit
+// doesn't need a real browser, login, or dev server to prove. What stays
+// here needs a real POST /api/users round trip: creating a row and seeing it
+// land in the table without a manual reload, and the server's 409 on a
+// duplicate email.
+//
 // Every test loads the shared ADMIN storageState snapshot (e2e/auth.setup.ts)
 // rather than driving a UI login — the login flow itself is covered by
 // e2e/login.spec.ts.
@@ -37,41 +46,6 @@ import { ADMIN_STORAGE_STATE } from "./storage-state";
 
 test.describe("admin creating a user from /users", () => {
   test.use({ storageState: ADMIN_STORAGE_STATE });
-
-  test("shows inline validation errors for invalid input and never submits", async ({ page }) => {
-    let createUserRequestCount = 0;
-    await page.route("**/api/users", async (route) => {
-      if (route.request().method() === "POST") createUserRequestCount++;
-      await route.continue();
-    });
-
-    await page.goto("/users");
-    await page.getByRole("button", { name: "New user" }).click();
-
-    const dialog = page.getByRole("dialog", { name: "New user" });
-    await expect(dialog).toBeVisible();
-
-    // One value per field, all invalid at once — a single submit is enough
-    // to prove react-hook-form's zodResolver blocks the request rather than
-    // needing three separate submit round trips.
-    await dialog.getByLabel("Name").fill("ab");
-    await dialog.getByLabel("Email").fill("not-an-email");
-    await dialog.getByLabel("Password").fill("short1");
-    await dialog.getByRole("button", { name: "Create user" }).click();
-
-    await expect(dialog.getByText("Name must be at least 3 characters")).toBeVisible();
-    // zod's built-in message for z.email() (models/user.model.ts doesn't
-    // override it the way it does for name/password) — see that schema.
-    await expect(dialog.getByText("Invalid email address")).toBeVisible();
-    await expect(dialog.getByText("Password must be at least 8 characters")).toBeVisible();
-
-    // Client-side validation blocked the submit entirely — no request ever
-    // reached the server, and the modal is still open with the entered
-    // values intact (not reset).
-    expect(createUserRequestCount).toBe(0);
-    await expect(dialog).toBeVisible();
-    await expect(dialog.getByLabel("Name")).toHaveValue("ab");
-  });
 
   test("creates a new agent and it appears in the table without a manual reload", async ({
     page,

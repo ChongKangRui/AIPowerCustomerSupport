@@ -5,7 +5,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api-client";
 import { useCurrentUser } from "@/hooks/use-current-user";
 import type { UpdateUserInput } from "@/models/user.model";
-import type { UserListItem } from "@/app/api/users/route";
+import type { UserListItem } from "@/models/user.model";
 
 // Admin "edit user" mutation — same TanStack Query + apiClient pattern as
 // useCreateUser (hooks/use-create-user.ts). Besides invalidating ["users"]

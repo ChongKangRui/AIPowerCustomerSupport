@@ -1,5 +1,22 @@
 import { z } from "zod";
 
+import type { Role } from "@/lib/generated/prisma/enums";
+
+// The wire shape of a user as returned by GET /api/users (after
+// NextResponse.json() serializes createdAt to an ISO string) — not the raw
+// Prisma row. Previously lived in app/api/users/route.ts itself; moved here
+// so the several UI files that need it (hooks/use-users.ts,
+// hooks/use-create-user.ts, hooks/use-update-user.ts,
+// components/users/*) import a plain types module instead of reaching
+// into a Route Handler file that also pulls in bcrypt/prisma.
+export type UserListItem = {
+  id: string;
+  name: string | null;
+  email: string;
+  role: Role;
+  createdAt: string;
+};
+
 // Request-shape validation for the admin "create user" endpoint
 // (app/api/users POST). Same convention as models/auth.model.ts — one
 // shared, importable source of truth for both the route handler's

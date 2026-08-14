@@ -18,7 +18,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { useDeleteUser } from "@/hooks/use-delete-user";
 import { Role } from "@/lib/generated/prisma/enums";
-import type { UserListItem } from "@/app/api/users/route";
+import type { UserListItem } from "@/models/user.model";
 
 // Per-row "delete" icon button rendered in components/users/users-table.tsx,
 // alongside EditUserDialog. One instance per row, own open state — same

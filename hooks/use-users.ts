@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { apiClient } from "@/lib/api-client";
-import type { UserListItem } from "@/app/api/users/route";
+import type { UserListItem } from "@/models/user.model";
 
 type UsersResponse = { users: UserListItem[] };
 

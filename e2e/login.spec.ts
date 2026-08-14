@@ -7,8 +7,24 @@ import { ADMIN, AGENT } from "./seeded-users";
 // since the form itself (not just "being logged in") is what's under test.
 // None of these tests write anything another test could race on: each
 // successful login only creates its own new Session row, and failed logins
-// don't touch the DB at all (see e2e/rate-limiting.spec.ts for more on why
-// hammering the same email with wrong passwords is also safe here).
+// don't touch the DB at all. Repeated failed logins for the same seeded
+// email (see the "invalid credentials" describe below) are also safe to run
+// in parallel with other specs logging in as that same account: lib/
+// rate-limiter.ts only gates on `RATE_LIMITING_ENABLED`, which is `NODE_ENV
+// === "production"` only — this suite's webServer runs `next dev`, so no
+// email+IP or per-IP counter is ever read or written here.
+//
+// Pure client-side behavior that doesn't need a real backend has moved to
+// app/login/login-form.test.tsx (a Vitest + Testing Library component test):
+// the "client-side validation" describe block (empty email, empty password,
+// malformed email — all just react-hook-form + zodResolver blocking a
+// submit) and the demo-account buttons' plain autofill-without-submit case.
+// What's left here is scoped to cases that only mean something against a
+// real dev server + database: a successful login actually creating a
+// session and redirecting, the generic invalid-credentials message actually
+// coming back from app/api/login/route.ts for both a wrong password and a
+// nonexistent email, and clicking a demo button *then submitting* to prove
+// the autofilled credentials really do authenticate.
 
 test.describe("successful login", () => {
   test("logs in as the seeded agent with typed credentials", async ({ page }) => {
@@ -37,21 +53,10 @@ test.describe("successful login", () => {
 });
 
 test.describe("demo account buttons", () => {
-  test("autofill the matching seeded credentials without submitting", async ({ page }) => {
-    await page.goto("/login");
-
-    await page.getByRole("button", { name: "Demo agent" }).click();
-    await expect(page.getByLabel("Email")).toHaveValue(AGENT.email);
-    await expect(page.getByLabel("Password")).toHaveValue(AGENT.password);
-    // Still on /login — clicking the demo button only fills the form.
-    await expect(page).toHaveURL(/\/login$/);
-
-    await page.getByRole("button", { name: "Demo admin" }).click();
-    await expect(page.getByLabel("Email")).toHaveValue(ADMIN.email);
-    await expect(page.getByLabel("Password")).toHaveValue(ADMIN.password);
-    await expect(page).toHaveURL(/\/login$/);
-  });
-
+  // The plain "clicking a demo button autofills the form without
+  // submitting" case now lives in app/login/login-form.test.tsx's "demo
+  // account buttons" describe block — it's pure client-side state, no
+  // backend involved. What stays here needs a real login round trip.
   test("submitting after clicking a demo account button logs in", async ({ page }) => {
     await page.goto("/login");
     await page.getByRole("button", { name: "Demo agent" }).click();
@@ -61,39 +66,6 @@ test.describe("demo account buttons", () => {
     await expect(
       page.getByRole("heading", { name: new RegExp(`welcome back, ${AGENT.name}`, "i") })
     ).toBeVisible();
-  });
-});
-
-test.describe("client-side validation", () => {
-  test("shows an inline error and blocks submission when email is empty", async ({ page }) => {
-    await page.goto("/login");
-    await page.getByLabel("Password").fill(AGENT.password);
-    await page.getByRole("button", { name: "Log in" }).click();
-
-    await expect(page.locator("form").getByRole("alert")).toBeVisible();
-    await expect(page).toHaveURL(/\/login$/);
-  });
-
-  test("shows an inline error and blocks submission when password is empty", async ({ page }) => {
-    await page.goto("/login");
-    await page.getByLabel("Email").fill(AGENT.email);
-    await page.getByRole("button", { name: "Log in" }).click();
-
-    await expect(page.locator("form").getByRole("alert")).toBeVisible();
-    await expect(page).toHaveURL(/\/login$/);
-  });
-
-  test("shows an inline error and blocks submission for a malformed email", async ({ page }) => {
-    await page.goto("/login");
-    // No "@" at all — invalid under any trim/lowercase ordering the schema
-    // might apply, so this doesn't depend on models/auth.model.ts's exact
-    // z.email().trim().toLowerCase() chain order.
-    await page.getByLabel("Email").fill("not-an-email");
-    await page.getByLabel("Password").fill(AGENT.password);
-    await page.getByRole("button", { name: "Log in" }).click();
-
-    await expect(page.locator("form").getByRole("alert")).toBeVisible();
-    await expect(page).toHaveURL(/\/login$/);
   });
 });
 

@@ -6,7 +6,7 @@ import { Pencil } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { UserFormDialog } from "@/components/users/user-form-dialog";
-import type { UserListItem } from "@/app/api/users/route";
+import type { UserListItem } from "@/models/user.model";
 
 // Per-row "edit" icon button rendered in components/users/users-table.tsx.
 // One instance per row (keyed to that row's user via the table's existing

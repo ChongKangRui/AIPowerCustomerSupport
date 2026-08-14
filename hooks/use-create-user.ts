@@ -4,7 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { apiClient } from "@/lib/api-client";
 import type { CreateUserInput } from "@/models/user.model";
-import type { UserListItem } from "@/app/api/users/route";
+import type { UserListItem } from "@/models/user.model";
 
 // Admin "create user" mutation — same TanStack Query + apiClient pattern as
 // the login mutation in app/login/login-form.tsx. Invalidates the ["users"]
