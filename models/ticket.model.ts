@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import type { TicketStatus } from "@/lib/generated/prisma/enums";
+import type { TicketMessageItem } from "@/models/ticket-message.model";
 
 // The wire shape of a ticket as returned by GET /api/tickets (after
 // NextResponse.json() serializes createdAt to an ISO string) — not the raw
@@ -73,3 +74,35 @@ export type TicketListResponse = {
   page: number;
   pageSize: number;
 };
+
+// The wire shape of a single ticket as returned by GET /api/tickets/[id] —
+// TicketListItem's fields plus the conversation thread and the
+// currently-unpopulated Phase 4 AI fields (summary/category/sentiment),
+// which are already columns on Ticket but not yet written by anything.
+// resolvedAt/closedAt surface here (unlike the list view, which has no room
+// to show them) since the detail page's Mark Resolved/Close actions need to
+// read them back after a mutation.
+export type TicketDetail = TicketListItem & {
+  updatedAt: string;
+  resolvedAt: string | null;
+  closedAt: string | null;
+  summary: string | null;
+  category: string | null;
+  sentiment: string | null;
+  messages: TicketMessageItem[];
+};
+
+// Request-shape validation for PATCH /api/tickets/[id] — the only mutation
+// this endpoint supports right now (status transitions triggered by the
+// detail page's Mark Resolved/Close buttons). No `.catch()` fallback, unlike
+// ticketListQuerySchema above: this is a mutation payload, not view state a
+// user can freely hand-edit into a URL, so bad input should 400 (same
+// reasoning as models/user.model.ts's createUserSchema/updateUserSchema).
+// OPEN is deliberately not a valid target here — there's no UI action that
+// reopens a ticket (see project-scope.md's lifecycle rules: reopening only
+// happens automatically, on a customer reply to a Resolved ticket).
+export const updateTicketStatusSchema = z.object({
+  status: z.enum(["RESOLVED", "CLOSED"]),
+});
+
+export type UpdateTicketStatusInput = z.infer<typeof updateTicketStatusSchema>;

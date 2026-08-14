@@ -78,8 +78,9 @@ Goal: tickets are fully manageable by a human, independent of AI.
 - [x] Ticket list page: table, role-scoped (`/tickets` page + `GET /api/tickets` — see `components/tickets/*`, `hooks/use-tickets.ts`)
 - [x] Server-side sorting (subject/status/createdAt) + pagination (fixed 20/page), synced to the URL (`?page=&sortBy=&sortDir=`) — `models/ticket.model.ts` (shared Zod query schema + sortBy allow-list), `app/api/tickets/route.ts`, `components/tickets/use-tickets-table.tsx` (TanStack Table v9), `components/ui/data-table.tsx` (generic rendering shell shared with `UsersTable`)
 - [x] Server-side status filter + debounced subject search, synced to the URL (`?status=&q=`, both omitted at their "no filter" default) — same query schema/route as above; search input debounces 700ms via `hooks/use-debounced-value.ts` before it ever reaches the URL/API, so typing doesn't fire a request per keystroke. Assigned-agent filtering is still a separate, later increment
-- [ ] Ticket detail page: full conversation thread (all `TicketMessage`s in order)
-- [ ] Manual agent actions on ticket detail: reply, mark Resolved, mark Closed (permanent)
+- [x] Ticket detail page: full conversation thread (all `TicketMessage`s in order) — `/tickets/[id]` page + `GET /api/tickets/[id]`, role-scoped same as the list route (see `components/tickets/ticket-detail-view.tsx`, `hooks/use-ticket.ts`); subject on the list page links here (`components/tickets/use-tickets-table.tsx`)
+- [x] Manual agent actions on ticket detail: mark Resolved, mark Closed (permanent) — `PATCH /api/tickets/[id]` (`ALLOWED_TRANSITIONS` allow-list), `hooks/use-update-ticket-status.ts`
+- [ ] Manual agent reply on ticket detail, sent as a real outbound email — blocked on `sendGmailReply()` (Phase 2, MIME + `In-Reply-To`/`References` threading) not existing yet; see Phase 2's e2e-test todo above
 - [ ] Lifecycle rule: customer reply to a `RESOLVED` ticket → reopen to `OPEN`, notify/assign a human
 - [ ] Resolved-ticket closing message template: must state that replying reopens the ticket and signals dissatisfaction
 - [ ] Lifecycle rule: customer reply to a `CLOSED` ticket → ignore + send automated "ticket closed, submit a new request" bounce, no new ticket created

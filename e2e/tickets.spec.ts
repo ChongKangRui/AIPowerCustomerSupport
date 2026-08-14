@@ -298,38 +298,37 @@ test.describe("GET /api/tickets", () => {
 test.describe("GET /api/tickets pagination and sorting", () => {
   test.use({ storageState: ADMIN_STORAGE_STATE });
 
-  // All ticket ids that exist in the DB by this point in the file (serial
-  // mode + this being the only spec file that writes to Ticket — see this
-  // file's top comment): the 3-row fixture set plus the 25-row pagination
-  // set. Used below to prove page 1 + page 2 together account for every row,
-  // with no id repeated and none missing.
-  function allFixtureIds(): string[] {
-    return [
-      fixtures.oldest.id,
-      fixtures.middle.id,
-      fixtures.newest.id,
-      ...paginationFixtures.map((ticket) => ticket.id),
-    ];
-  }
+  // The exact-total/exact-page-reconstruction tests below scope every
+  // request with q=E2E Pagination Ticket (the subject prefix every row from
+  // seedManyTicketFixtures shares — see ticket-fixtures.ts) rather than
+  // asserting against the whole database's ticket count. This file is no
+  // longer the only spec that writes Ticket rows (e2e/ticket-detail.spec.ts
+  // now does too, per-test), so an admin's unfiltered GET /api/tickets total
+  // is no longer a closed, predictable number — it depends on whatever else
+  // happens to be running in parallel. Scoping by q sidesteps that entirely:
+  // these two tests only need to prove skip/take/total math is internally
+  // consistent for a set of rows this file fully owns, not that nothing else
+  // in the DB exists.
+  const paginationQuery = `q=${encodeURIComponent("E2E Pagination Ticket")}`;
 
   test("returns a full page of pageSize tickets and the true total, not capped at pageSize", async ({
     request,
   }) => {
-    const response = await request.get("/api/tickets");
+    const response = await request.get(`/api/tickets?${paginationQuery}`);
     expect(response.status()).toBe(200);
 
     const body = await response.json();
     expect(body.tickets).toHaveLength(TICKET_PAGE_SIZE);
     expect(body.page).toBe(1);
     expect(body.pageSize).toBe(TICKET_PAGE_SIZE);
-    expect(body.total).toBe(allFixtureIds().length);
+    expect(body.total).toBe(PAGINATION_FIXTURE_COUNT);
   });
 
   test("page 2 returns the remaining tickets, with no id overlap and no gap against page 1", async ({
     request,
   }) => {
-    const page1Response = await request.get("/api/tickets?page=1");
-    const page2Response = await request.get("/api/tickets?page=2");
+    const page1Response = await request.get(`/api/tickets?page=1&${paginationQuery}`);
+    const page2Response = await request.get(`/api/tickets?page=2&${paginationQuery}`);
     expect(page1Response.status()).toBe(200);
     expect(page2Response.status()).toBe(200);
 
@@ -340,17 +339,17 @@ test.describe("GET /api/tickets pagination and sorting", () => {
     const page2Ids: string[] = page2Body.tickets.map((ticket: { id: string }) => ticket.id);
 
     expect(page1Ids).toHaveLength(TICKET_PAGE_SIZE);
-    expect(page2Ids).toHaveLength(allFixtureIds().length - TICKET_PAGE_SIZE);
+    expect(page2Ids).toHaveLength(PAGINATION_FIXTURE_COUNT - TICKET_PAGE_SIZE);
 
     // No overlap: nothing returned on page 1 reappears on page 2.
     const overlap = page1Ids.filter((id) => page2Ids.includes(id));
     expect(overlap).toEqual([]);
 
-    // No gap: the two pages together account for every ticket id that
-    // exists, not just the two fixture sets' ids — proving `total`/`skip`/
-    // `take` are consistent with each other across page boundaries.
+    // No gap: the two pages together account for every pagination-fixture
+    // id, and nothing else — proving `total`/`skip`/`take` are consistent
+    // with each other across page boundaries.
     const combinedIds = [...page1Ids, ...page2Ids].sort();
-    const expectedIds = allFixtureIds().sort();
+    const expectedIds = paginationFixtures.map((ticket) => ticket.id).sort();
     expect(combinedIds).toEqual(expectedIds);
   });
 

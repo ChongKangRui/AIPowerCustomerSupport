@@ -66,6 +66,14 @@ function renderTicketsTable({
 }
 
 describe("TicketsTable", () => {
+  it("renders the subject as a link to that ticket's detail page", () => {
+    renderTicketsTable({ tickets: [ticket({ id: "ticket-42", subject: "Refund request" })] });
+
+    expect(screen.getByRole("link", { name: "Refund request" }).getAttribute("href")).toBe(
+      "/tickets/ticket-42"
+    );
+  });
+
   it("renders the literal text 'Unassigned' for a ticket with no assignedTo", () => {
     renderTicketsTable({ tickets: [ticket({ assignedTo: null })] });
 

@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import {
   createColumnHelper,
   rowPaginationFeature,
@@ -10,8 +12,7 @@ import {
   type SortingState,
 } from "@tanstack/react-table";
 
-import { Badge } from "@/components/ui/badge";
-import { TicketStatus } from "@/lib/generated/prisma/enums";
+import { StatusBadge } from "@/components/tickets/status-badge";
 import { TICKET_PAGE_SIZE, type TicketListItem, type TicketSortableField } from "@/models/ticket.model";
 
 // @tanstack/react-table's npm `latest` tag is v9 — a rewrite of the v8 API
@@ -34,17 +35,6 @@ const dateFormatter = new Intl.DateTimeFormat("en-US", {
   dateStyle: "medium",
   timeStyle: "short",
 });
-
-function StatusBadge({ status }: { status: TicketListItem["status"] }) {
-  const variant =
-    status === TicketStatus.OPEN
-      ? "destructive"
-      : status === TicketStatus.RESOLVED
-        ? "secondary"
-        : "outline";
-
-  return <Badge variant={variant}>{status}</Badge>;
-}
 
 // Column ids for the three sortable columns are deliberately identical to
 // TicketSortableField's literal values ("subject" | "status" | "createdAt")
@@ -77,7 +67,15 @@ const columns = columnHelper.columns([
   columnHelper.accessor("subject", {
     header: "Subject",
     sortDescFirst: false,
-    cell: (info) => info.getValue(),
+    // Links to the detail page (app/(main)/tickets/[id]/page.tsx). Just the
+    // subject text, not the whole row — TanStack's sortable-header click
+    // handling already lives one level up in DataTable, this is the only
+    // interactive element inside a data cell in this table.
+    cell: (info) => (
+      <Link href={`/tickets/${info.row.original.id}`} className="hover:underline">
+        {info.getValue()}
+      </Link>
+    ),
     meta: { headerClassName: "w-[32%]", cellClassName: "truncate font-medium" },
   }),
   columnHelper.display({

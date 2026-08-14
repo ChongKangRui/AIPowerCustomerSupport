@@ -34,7 +34,15 @@ export function Navbar() {
   const logoutMutation = useMutation({
     mutationFn: () => apiClient.post("/api/logout"),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["session"] });
+      // No queryKey filter — invalidates every cached query (tickets, users,
+      // session, …), not just ["session"]. Logging out only refetching
+      // session left every other query's last-known data sitting in the
+      // cache marked fresh; if the next person to use this browser logs in
+      // as someone else, any component that reads one of those queries
+      // before it happens to refetch on its own would render the previous
+      // user's data for an instant. Invalidating everything here means the
+      // next mount/access of any query always goes back to the network.
+      await queryClient.invalidateQueries();
       // replace, not push — mirrors app/login/login-form.tsx's own use of
       // replace for the opposite direction. This overwrites the just-left
       // protected page's history entry with /login instead of adding to

@@ -27,6 +27,25 @@ import { AGENT } from "./seeded-users";
 // (Postgres lowercases unquoted identifiers) because nothing in
 // prisma/schema.prisma uses @@map/@map — the table and column names are
 // exactly the Prisma model/field names.
+
+// Opens a fresh `pg` connection to the test database, hands it to `fn`, and
+// always closes it afterward — the same connect/try/finally/end shape every
+// exported seeding function below repeats. e2e/ticket-detail.spec.ts uses
+// this directly (rather than duplicating that boilerplate) since, unlike
+// e2e/tickets.spec.ts's single shared-fixture-set beforeAll, that spec needs
+// a fresh, uniquely-identified ticket per mutating test (see this file's and
+// that spec's shared-DB-parallelism notes) — many short-lived connections,
+// one per test, instead of one long-lived one.
+export async function withTestDbClient<T>(fn: (client: Client) => Promise<T>): Promise<T> {
+  const client = new Client({ connectionString: resolveTestDatabaseUrl() });
+  await client.connect();
+  try {
+    return await fn(client);
+  } finally {
+    await client.end();
+  }
+}
+
 export async function seedTicketFixtures(): Promise<TicketFixtures> {
   const client = new Client({ connectionString: resolveTestDatabaseUrl() });
   await client.connect();
@@ -34,24 +53,11 @@ export async function seedTicketFixtures(): Promise<TicketFixtures> {
   try {
     const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-    const agentResult = await client.query<{ id: string }>(
-      `SELECT id FROM "User" WHERE email = $1`,
-      [AGENT.email]
-    );
-    if (agentResult.rows.length === 0) {
-      throw new Error(
-        `Seeded agent (${AGENT.email}) not found — did global setup's ` +
-          `"prisma migrate reset" + "prisma db seed" run before this spec?`
-      );
-    }
-    const agentId = agentResult.rows[0].id;
-
-    const otherAgentId = crypto.randomUUID();
-    await client.query(
-      `INSERT INTO "User" (id, email, name, role, "createdAt", "updatedAt")
-       VALUES ($1, $2, $3, 'AGENT'::"Role", now(), now())`,
-      [otherAgentId, `e2e-tickets-other-agent-${runId}@example.com`, "Other Agent"]
-    );
+    const agentId = await getSeededAgentId(client);
+    const otherAgentId = await createThrowawayAgent(client, {
+      email: `e2e-tickets-other-agent-${runId}@example.com`,
+      name: "Other Agent",
+    });
 
     const now = Date.now();
 
@@ -97,7 +103,42 @@ export async function seedTicketFixtures(): Promise<TicketFixtures> {
   }
 }
 
-async function insertTicket(
+// Looks up the seeded Agent's real User.id by email (e2e/seeded-users.ts's
+// AGENT) — shared by seedTicketFixtures above and e2e/ticket-detail.spec.ts,
+// which needs the real id to build tickets "assigned to the logged-in
+// agent" without hardcoding/guessing it.
+export async function getSeededAgentId(client: Client): Promise<string> {
+  const agentResult = await client.query<{ id: string }>(
+    `SELECT id FROM "User" WHERE email = $1`,
+    [AGENT.email]
+  );
+  if (agentResult.rows.length === 0) {
+    throw new Error(
+      `Seeded agent (${AGENT.email}) not found — did global setup's ` +
+        `"prisma migrate reset" + "prisma db seed" run before this spec?`
+    );
+  }
+  return agentResult.rows[0].id;
+}
+
+// Inserts a throwaway second AGENT user — used wherever a fixture needs a
+// ticket assigned to "some agent other than the real seeded one" (proving
+// role-scoping actually excludes another agent's ticket, not just any
+// unassigned one). Caller supplies a run-scoped unique email.
+export async function createThrowawayAgent(
+  client: Client,
+  agent: { email: string; name: string }
+): Promise<string> {
+  const id = crypto.randomUUID();
+  await client.query(
+    `INSERT INTO "User" (id, email, name, role, "createdAt", "updatedAt")
+     VALUES ($1, $2, $3, 'AGENT'::"Role", now(), now())`,
+    [id, agent.email, agent.name]
+  );
+  return id;
+}
+
+export async function insertTicket(
   client: Client,
   ticket: {
     subject: string;
@@ -185,6 +226,43 @@ export async function seedManyTicketFixtures(count: number): Promise<TicketFixtu
   } finally {
     await client.end();
   }
+}
+
+// Inserts a single TicketMessage row for e2e/ticket-detail.spec.ts — that
+// spec needs to prove GET /api/tickets/[id]'s `messages` array (and the
+// detail page's conversation thread) reflect a real DB row, not just an
+// empty array. Mirrors insertTicket's raw-`pg` approach and rationale
+// (see this file's top comment) rather than the generated Prisma client.
+// `gmailMessageId` must be globally unique (schema's @unique) — callers pass
+// their own run-scoped value, same convention insertTicket uses for
+// gmailThreadId.
+export async function insertTicketMessage(
+  client: Client,
+  message: {
+    ticketId: string;
+    direction: "INBOUND" | "OUTBOUND";
+    authorType: "CUSTOMER" | "AGENT" | "AI" | "SYSTEM";
+    authorId?: string | null;
+    body: string;
+    gmailMessageId: string;
+  }
+): Promise<{ id: string; body: string }> {
+  const id = crypto.randomUUID();
+  await client.query(
+    `INSERT INTO "TicketMessage" (
+       id, "ticketId", direction, "authorType", "authorId", body, "gmailMessageId", "createdAt"
+     ) VALUES ($1, $2, $3::"MessageDirection", $4::"MessageAuthorType", $5, $6, $7, now())`,
+    [
+      id,
+      message.ticketId,
+      message.direction,
+      message.authorType,
+      message.authorId ?? null,
+      message.body,
+      message.gmailMessageId,
+    ]
+  );
+  return { id, body: message.body };
 }
 
 export type TicketFixture = { id: string; subject: string };
