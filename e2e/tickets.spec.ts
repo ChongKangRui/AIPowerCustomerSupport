@@ -1,9 +1,15 @@
 import { expect, test } from "@playwright/test";
 
 import { TicketStatus } from "@/lib/generated/prisma/enums";
+import { TICKET_PAGE_SIZE } from "@/models/ticket.model";
 import { AGENT } from "./seeded-users";
 import { ADMIN_STORAGE_STATE, AGENT_STORAGE_STATE } from "./storage-state";
-import { seedTicketFixtures, type TicketFixtures } from "./ticket-fixtures";
+import {
+  seedManyTicketFixtures,
+  seedTicketFixtures,
+  type TicketFixture,
+  type TicketFixtures,
+} from "./ticket-fixtures";
 
 // Coverage for the ticket list feature: app/(main)/tickets/page.tsx,
 // components/tickets/tickets-view.tsx + tickets-table.tsx, hooks/use-tickets.ts,
@@ -45,12 +51,26 @@ import { seedTicketFixtures, type TicketFixtures } from "./ticket-fixtures";
 // were re-created once per worker. `mode: "serial"` below forces this whole
 // file into a single worker, so seedTicketFixtures() runs exactly once (from
 // the top-level beforeAll), same DB the entire file's tests then only read.
+//
+// A second fixture set, seeded alongside the 3-row one above, backs the
+// server-side sort/pagination coverage further down (GET /api/tickets ->
+// page/sortBy/sortDir params, response shape's total/page/pageSize). It's
+// unassigned (admin-visible, agent-invisible) and anchored a full day further
+// into the past than the 3-row set — see ticket-fixtures.ts's comment on
+// seedManyTicketFixtures for why that ordering choice keeps the pre-existing
+// "sorts newest-first" tests above passing unmodified: the 3-row set always
+// sorts ahead of these 25 rows under the default createdAt-desc order, so it
+// stays within page 1 regardless of this larger set's existence.
 test.describe.configure({ mode: "serial" });
 
+const PAGINATION_FIXTURE_COUNT = 25;
+
 let fixtures: TicketFixtures;
+let paginationFixtures: TicketFixture[];
 
 test.beforeAll(async () => {
   fixtures = await seedTicketFixtures();
+  paginationFixtures = await seedManyTicketFixtures(PAGINATION_FIXTURE_COUNT);
 });
 
 test.describe("admin viewing the tickets list", () => {
@@ -155,6 +175,18 @@ test.describe("GET /api/tickets", () => {
       const body = await response.json();
       expect(Array.isArray(body.tickets)).toBe(true);
 
+      // Response-envelope shape (added alongside server-side pagination) —
+      // `page`/`pageSize` are asserted as literal values, not just presence,
+      // since they're documented as "default page 1" and "fixed constant"
+      // respectively, not arbitrary numbers.
+      expect(body).toEqual(
+        expect.objectContaining({
+          total: expect.any(Number),
+          page: 1,
+          pageSize: TICKET_PAGE_SIZE,
+        })
+      );
+
       const ids = body.tickets.map((ticket: { id: string }) => ticket.id);
       expect(ids).toContain(fixtures.oldest.id);
       expect(ids).not.toContain(fixtures.middle.id);
@@ -182,6 +214,30 @@ test.describe("GET /api/tickets", () => {
           createdAt: expect.any(String),
         })
       );
+    });
+
+    test("stays scoped to the agent's own tickets when sort and page params are present", async ({
+      request,
+    }) => {
+      // Guards against a regression where role-scoping (the `where` clause)
+      // only gets applied on the bare, no-query-params path and a sortBy/
+      // page combination accidentally bypasses it.
+      const response = await request.get("/api/tickets?page=1&sortBy=status&sortDir=asc");
+      expect(response.status()).toBe(200);
+
+      const body = await response.json();
+      expect(body.tickets.length).toBeGreaterThan(0);
+      for (const ticket of body.tickets) {
+        expect(ticket.assignedTo?.id).toBe(fixtures.agentId);
+      }
+
+      const ids = body.tickets.map((ticket: { id: string }) => ticket.id);
+      expect(ids).toContain(fixtures.oldest.id);
+      // None of the 25 unassigned pagination fixtures should leak through —
+      // they're admin-visible only.
+      for (const paginationFixture of paginationFixtures) {
+        expect(ids).not.toContain(paginationFixture.id);
+      }
     });
   });
 
@@ -224,5 +280,103 @@ test.describe("GET /api/tickets", () => {
 
       expect(orderedIds).toEqual([fixtures.newest.id, fixtures.middle.id, fixtures.oldest.id]);
     });
+  });
+});
+
+// Server-side pagination and sorting (page/sortBy/sortDir query params —
+// models/ticket.model.ts's ticketListQuerySchema, applied via Prisma
+// orderBy/skip/take in app/api/tickets/route.ts). Deliberately request-level
+// (not UI): what's worth a real browser+server+DB round trip here is the
+// actual row order and 20-row cap the database enforces and the interaction
+// between pagination/sort params and role-scoping — not clicking a sort
+// header or a Previous/Next button, which is already covered against a
+// mocked API by components/tickets/tickets-table.test.tsx,
+// tickets-pagination.test.tsx, and tickets-view.test.tsx. Garbage/invalid
+// query values (negative page, unknown sortBy) are out of scope here too —
+// that fallback-to-default behavior is a pure schema concern already covered
+// by models/ticket.model.test.ts.
+test.describe("GET /api/tickets pagination and sorting", () => {
+  test.use({ storageState: ADMIN_STORAGE_STATE });
+
+  // All ticket ids that exist in the DB by this point in the file (serial
+  // mode + this being the only spec file that writes to Ticket — see this
+  // file's top comment): the 3-row fixture set plus the 25-row pagination
+  // set. Used below to prove page 1 + page 2 together account for every row,
+  // with no id repeated and none missing.
+  function allFixtureIds(): string[] {
+    return [
+      fixtures.oldest.id,
+      fixtures.middle.id,
+      fixtures.newest.id,
+      ...paginationFixtures.map((ticket) => ticket.id),
+    ];
+  }
+
+  test("returns a full page of pageSize tickets and the true total, not capped at pageSize", async ({
+    request,
+  }) => {
+    const response = await request.get("/api/tickets");
+    expect(response.status()).toBe(200);
+
+    const body = await response.json();
+    expect(body.tickets).toHaveLength(TICKET_PAGE_SIZE);
+    expect(body.page).toBe(1);
+    expect(body.pageSize).toBe(TICKET_PAGE_SIZE);
+    expect(body.total).toBe(allFixtureIds().length);
+  });
+
+  test("page 2 returns the remaining tickets, with no id overlap and no gap against page 1", async ({
+    request,
+  }) => {
+    const page1Response = await request.get("/api/tickets?page=1");
+    const page2Response = await request.get("/api/tickets?page=2");
+    expect(page1Response.status()).toBe(200);
+    expect(page2Response.status()).toBe(200);
+
+    const page1Body = await page1Response.json();
+    const page2Body = await page2Response.json();
+
+    const page1Ids: string[] = page1Body.tickets.map((ticket: { id: string }) => ticket.id);
+    const page2Ids: string[] = page2Body.tickets.map((ticket: { id: string }) => ticket.id);
+
+    expect(page1Ids).toHaveLength(TICKET_PAGE_SIZE);
+    expect(page2Ids).toHaveLength(allFixtureIds().length - TICKET_PAGE_SIZE);
+
+    // No overlap: nothing returned on page 1 reappears on page 2.
+    const overlap = page1Ids.filter((id) => page2Ids.includes(id));
+    expect(overlap).toEqual([]);
+
+    // No gap: the two pages together account for every ticket id that
+    // exists, not just the two fixture sets' ids — proving `total`/`skip`/
+    // `take` are consistent with each other across page boundaries.
+    const combinedIds = [...page1Ids, ...page2Ids].sort();
+    const expectedIds = allFixtureIds().sort();
+    expect(combinedIds).toEqual(expectedIds);
+  });
+
+  test("sortBy=subject&sortDir=asc returns a real, verifiably-correct alphabetical order, different from the default", async ({
+    request,
+  }) => {
+    const defaultResponse = await request.get("/api/tickets");
+    const defaultBody = await defaultResponse.json();
+    const defaultIds = defaultBody.tickets.map((ticket: { id: string }) => ticket.id);
+
+    const sortedResponse = await request.get("/api/tickets?sortBy=subject&sortDir=asc");
+    expect(sortedResponse.status()).toBe(200);
+    const sortedBody = await sortedResponse.json();
+    const sortedIds = sortedBody.tickets.map((ticket: { id: string }) => ticket.id);
+
+    // Every pagination fixture's subject ("E2E Pagination Ticket NN ...")
+    // sorts alphabetically before every 3-row fixture's subject ("E2E Ticket
+    // ..." — 'P' < 'T'), so the first (pageSize) rows in ascending-by-subject
+    // order are exactly the alphabetically-first pageSize pagination
+    // fixtures, independent of createdAt or insertion order.
+    const expectedIds = [...paginationFixtures]
+      .sort((a, b) => (a.subject < b.subject ? -1 : a.subject > b.subject ? 1 : 0))
+      .slice(0, TICKET_PAGE_SIZE)
+      .map((ticket) => ticket.id);
+
+    expect(sortedIds).toEqual(expectedIds);
+    expect(sortedIds).not.toEqual(defaultIds);
   });
 });

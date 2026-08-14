@@ -75,7 +75,9 @@ Goal: real emails become tickets in the DB, and the app can reply back into the 
 Goal: tickets are fully manageable by a human, independent of AI.
 
 - [x] Finalize `Ticket` status enum: `OPEN`, `RESOLVED`, `CLOSED`
-- [x] Ticket list page: table, sorted newest-first, role-scoped (`/tickets` page + `GET /api/tickets` — see `components/tickets/*`, `hooks/use-tickets.ts`); filtering (status, assigned agent) still pending — no filter UI/query params yet
+- [x] Ticket list page: table, role-scoped (`/tickets` page + `GET /api/tickets` — see `components/tickets/*`, `hooks/use-tickets.ts`)
+- [x] Server-side sorting (subject/status/createdAt) + pagination (fixed 20/page), synced to the URL (`?page=&sortBy=&sortDir=`) — `models/ticket.model.ts` (shared Zod query schema + sortBy allow-list), `app/api/tickets/route.ts`, `components/tickets/use-tickets-table.tsx` (TanStack Table v9), `components/ui/data-table.tsx` (generic rendering shell shared with `UsersTable`)
+- [x] Server-side status filter + debounced subject search, synced to the URL (`?status=&q=`, both omitted at their "no filter" default) — same query schema/route as above; search input debounces 700ms via `hooks/use-debounced-value.ts` before it ever reaches the URL/API, so typing doesn't fire a request per keystroke. Assigned-agent filtering is still a separate, later increment
 - [ ] Ticket detail page: full conversation thread (all `TicketMessage`s in order)
 - [ ] Manual agent actions on ticket detail: reply, mark Resolved, mark Closed (permanent)
 - [ ] Lifecycle rule: customer reply to a `RESOLVED` ticket → reopen to `OPEN`, notify/assign a human

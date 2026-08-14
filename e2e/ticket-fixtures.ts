@@ -129,6 +129,64 @@ async function insertTicket(
   return { id, subject: ticket.subject };
 }
 
+// Seeds `count` additional, distinctly-subjected tickets for the pagination/
+// sort e2e coverage in e2e/tickets.spec.ts (the 3-row set above is too few to
+// prove a 20-row page cap or a real multi-page split). Left unassigned so
+// they're visible under ADMIN_STORAGE_STATE (admin's `where` is unscoped)
+// without needing another throwaway agent, and so they never show up under
+// AGENT_STORAGE_STATE — keeping this set's cross-talk with the 3-row fixture
+// set and with the agent-scoping tests at zero.
+//
+// createdAt is deliberately anchored a full day in the past (minus a small
+// per-row stagger), not "now minus a few minutes" like the 3-row set above:
+// GET /api/tickets's *default* sort is createdAt desc, and the existing
+// "sorts newest-first" tests (both the UI row-order test and the API
+// id-order test) assert against the 3-row set assuming it's within page 1's
+// top 3 rows. Anchoring this set further into the past than the 3-row set,
+// regardless of which fixture function happens to run first in a given
+// beforeAll, keeps those pre-existing tests passing unmodified while still
+// giving each of the `count` rows its own distinct, orderable timestamp for
+// the pagination assertions that do target this set specifically.
+export async function seedManyTicketFixtures(count: number): Promise<TicketFixture[]> {
+  const client = new Client({ connectionString: resolveTestDatabaseUrl() });
+  await client.connect();
+
+  try {
+    const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const now = Date.now();
+    const dayMs = 24 * 60 * 60 * 1000;
+    const width = String(count).length;
+
+    const tickets: TicketFixture[] = [];
+    for (let n = 1; n <= count; n++) {
+      // Zero-padded so subject strings sort alphabetically in the same order
+      // as `n` numerically (e.g. "01" < "02" < ... < "25", not "1" < "10" <
+      // "2") — required for the sortBy=subject&sortDir=asc test to be able
+      // to predict the expected id order from `n` alone.
+      const label = String(n).padStart(width, "0");
+      // n=1 is the oldest of this set (furthest into the past), n=count is
+      // the newest — staggered a minute apart so every row has a distinct
+      // createdAt, all still well before the 3-row fixture set's timestamps.
+      const createdAt = new Date(now - dayMs - (count - n) * 60_000);
+
+      const ticket = await insertTicket(client, {
+        subject: `E2E Pagination Ticket ${label} ${runId}`,
+        customerEmail: `pagination-${label}-${runId}@customer.example`,
+        customerName: null,
+        gmailThreadId: `e2e-thread-pagination-${label}-${runId}`,
+        status: "OPEN",
+        assignedToId: null,
+        createdAt,
+      });
+      tickets.push(ticket);
+    }
+
+    return tickets;
+  } finally {
+    await client.end();
+  }
+}
+
 export type TicketFixture = { id: string; subject: string };
 
 export type TicketFixtures = {
