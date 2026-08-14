@@ -14,6 +14,7 @@
     "db:deploy": "prisma migrate deploy",
     "db:studio": "prisma studio",
     "db:seed": "tsx prisma/seed.ts",
+    "db:seed:tickets": "tsx prisma/seed-tickets.ts",
     "gmail:poll": "tsx scripts/poll-gmail.ts",
     "test": "vitest run",
     "test:watch": "vitest",
