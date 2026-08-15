@@ -23,8 +23,17 @@ import {
 //
 // Deliberately NOT covered here (see this file's originating task for the
 // full rationale):
-//   - The reply textarea/Send button — UI-only, no mutation wired up at all
-//     yet, so there's nothing a real backend round trip could prove.
+//   - POST /api/tickets/[id]/reply's *successful*-send happy path. The route
+//     is fully wired now (reply textarea/Send button in
+//     ticket-detail-view.tsx -> hooks/use-send-ticket-reply.ts -> this real
+//     endpoint), but a 200 response only happens after a real call to
+//     lib/gmail.ts's sendGmailReply() — an actual outbound Gmail API round
+//     trip. That must stay manual-only (already verified working manually;
+//     see the gitignored error-log.txt), never triggered from an automated
+//     suite and never faked via a mock/stub of lib/gmail.ts. What e2e *can*
+//     safely prove — the 400/401/404/409 guard paths that all return before
+//     sendGmailReply() is ever called — is covered in the
+//     "POST /api/tickets/[id]/reply" describe below.
 //   - StatusBadge's status->variant mapping, TicketDetailHeader's
 //     customer/assignee fallback text, and TicketConversation's per-
 //     authorType label/empty-state logic — pure presentational branches,
@@ -339,6 +348,70 @@ test.describe("PATCH /api/tickets/[id]", () => {
 
       const getResponse = await request.get(`/api/tickets/${ticket.id}`);
       expect((await getResponse.json()).status).toBe("CLOSED");
+    });
+  });
+});
+
+test.describe("POST /api/tickets/[id]/reply", () => {
+  // Only the guard/rejection paths that return before sendGmailReply() is
+  // ever called (see app/api/tickets/[id]/reply/route.ts) are exercised
+  // here — see this file's top comment for why the successful-send path
+  // stays out of e2e coverage entirely.
+
+  test.describe("invalid body values", () => {
+    test.use({ storageState: ADMIN_STORAGE_STATE });
+
+    // Validated by models/ticket.model.ts's sendTicketReplySchema before any
+    // DB lookup happens (.parse() runs ahead of findScopedTicket, same as
+    // PATCH's updateTicketStatusSchema above), so a real ticket id isn't
+    // needed for either case: both are rejected before the id is ever used.
+    for (const invalidBody of ["", "   "]) {
+      test(`returns 400 for body: ${JSON.stringify(invalidBody)}`, async ({ request }) => {
+        const response = await request.post(`/api/tickets/${crypto.randomUUID()}/reply`, {
+          data: { body: invalidBody },
+        });
+        expect(response.status()).toBe(400);
+      });
+    }
+  });
+
+  test("returns 401 with no session", async ({ request }) => {
+    const response = await request.post(`/api/tickets/${detailTicket.id}/reply`, {
+      data: { body: "An unauthenticated reply attempt" },
+    });
+    expect(response.status()).toBe(401);
+  });
+
+  test.describe("as a scoped-out agent", () => {
+    test.use({ storageState: AGENT_STORAGE_STATE });
+
+    test("returns 404 instead of sending on a ticket assigned to a different agent", async ({
+      request,
+    }) => {
+      const response = await request.post(`/api/tickets/${scopedOutTicket.id}/reply`, {
+        data: { body: "A reply from the wrong agent" },
+      });
+      expect(response.status()).toBe(404);
+    });
+  });
+
+  test.describe("as an admin", () => {
+    test.use({ storageState: ADMIN_STORAGE_STATE });
+
+    test("returns 404 for a nonexistent ticket id", async ({ request }) => {
+      const response = await request.post(`/api/tickets/${crypto.randomUUID()}/reply`, {
+        data: { body: "A reply to a ticket that doesn't exist" },
+      });
+      expect(response.status()).toBe(404);
+    });
+
+    test("returns 409 instead of sending on a CLOSED ticket", async ({ request }) => {
+      const ticket = await createTicket("CLOSED", null);
+
+      const response = await request.post(`/api/tickets/${ticket.id}/reply`, {
+        data: { body: "A reply to a closed ticket" },
+      });
+      expect(response.status()).toBe(409);
     });
   });
 });

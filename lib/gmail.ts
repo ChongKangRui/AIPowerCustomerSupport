@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { google } from "googleapis";
 import type { gmail_v1 } from "googleapis";
 
@@ -26,52 +28,6 @@ function createGmailClient(): gmail_v1.Gmail {
 }
 
 export const gmail = createGmailClient();
-
-// ---------------------------------------------------------------------------
-// TEMP DEBUG LOGGING — everything in this block, plus its call sites (also
-// marked "TEMP DEBUG" below), exists purely so you can see what Gmail
-// actually sends back while you're learning the shape of the API. Delete
-// this whole block and its call sites once you're done exploring — search
-// this file for "TEMP DEBUG" to find every piece.
-// ---------------------------------------------------------------------------
-
-function debugLogHeaders(headers: gmail_v1.Schema$MessagePartHeader[]): void {
-  console.log("--- Headers ---");
-  for (const h of headers) {
-    console.log(`  ${h.name}: ${h.value}`);
-  }
-}
-
-// Prints the MIME "part" tree Gmail returns for a message body. A message
-// isn't one flat body string — it's a tree of parts. Common shapes:
-//   - a simple message: one part, mimeType "text/plain" (or "text/html")
-//   - a normal email client's message: "multipart/alternative" wrapping two
-//     children — "text/plain" and "text/html" versions of the SAME content
-//   - a message with attachments: "multipart/mixed" wrapping the above
-//     alternative pair PLUS one child per attachment (mimeType like
-//     "image/png", each with a "filename")
-// Each part's actual content lives at part.body.data, base64url-encoded —
-// that's why decoding is needed before you can read it as normal text.
-function debugLogMimeTree(part: gmail_v1.Schema$MessagePart | undefined, depth = 0): void {
-  if (!part) return;
-  const indent = "  ".repeat(depth);
-  const bodyInfo = part.body?.data
-    ? `${part.body.data.length} base64url chars`
-    : "no body.data (container part, content is in its children)";
-  const filename = part.filename ? ` filename="${part.filename}"` : "";
-  console.log(`${indent}- ${part.mimeType ?? "(unknown mimeType)"} [${bodyInfo}]${filename}`);
-
-  if (part.body?.data && (part.mimeType === "text/plain" || part.mimeType === "text/html")) {
-    const decoded = Buffer.from(part.body.data, "base64url").toString("utf-8");
-    const preview = decoded.slice(0, 200).replace(/\n/g, "\\n");
-    console.log(`${indent}  decoded preview: "${preview}${decoded.length > 200 ? "..." : ""}"`);
-  }
-
-  for (const child of part.parts ?? []) {
-    debugLogMimeTree(child, depth + 1);
-  }
-}
-// --- end TEMP DEBUG helpers ---
 
 // ---------------------------------------------------------------------------
 // EmailSyncState — stored `historyId` watermark (single row, id "gmail")
@@ -243,25 +199,8 @@ async function processMessage(messageId: string, stats: PollStats): Promise<void
     throw error;
   }
 
-  // TEMP DEBUG — the raw shape of one Gmail message: its metadata, its
-  // headers, and its MIME part tree (see debugLogMimeTree's comment above
-  // for what that tree means). Remove this block once you're done exploring.
-  console.log(`\n${"=".repeat(70)}\nMessage ${message.id}\n${"=".repeat(70)}`);
-  console.log("threadId:", message.threadId);
-  console.log("labelIds:", message.labelIds);
-  console.log("snippet (Gmail's own short preview):", message.snippet);
-  debugLogHeaders(message.payload?.headers ?? []);
-  console.log("--- MIME part tree ---");
-  debugLogMimeTree(message.payload);
-  // --- end TEMP DEBUG ---
-
   const parsed = parseGmailMessage(message);
   stats.processed++;
-
-  // TEMP DEBUG — what our own parser extracted from all of the above.
-  console.log("--- Parsed result (what we actually store) ---");
-  console.log(parsed);
-  // --- end TEMP DEBUG ---
 
   if (parsed.isSelfSent) {
     stats.skippedSelfSent++;
@@ -380,4 +319,88 @@ export async function pollGmailAndCreateTickets(): Promise<PollStats> {
 
   logger.info({ ...stats, latestHistoryId }, "Gmail poll complete");
   return stats;
+}
+
+// ---------------------------------------------------------------------------
+// Send — outbound replies, threaded via Gmail's own threadId plus the
+// standard In-Reply-To/References headers most clients also key threading
+// display off of.
+// ---------------------------------------------------------------------------
+
+// Pure send: takes everything it needs as arguments and hands back what the
+// caller needs to persist. No DB access here — same split as
+// parseGmailMessage (pure parse) vs processMessage (parse + DB) above; the
+// caller (app/api/tickets/[id]/reply/route.ts) is the one that reads the
+// ticket/thread state beforehand and writes the resulting TicketMessage
+// afterward.
+export async function sendGmailReply({
+  threadId,
+  to,
+  subject,
+  bodyText,
+  inReplyTo,
+}: {
+  threadId: string;
+  to: string;
+  subject: string;
+  bodyText: string;
+  /** rfcMessageId of the most recent message in the thread, if any. */
+  inReplyTo: string | null;
+}): Promise<{ gmailMessageId: string; rfcMessageId: string }> {
+  const gmailUser = process.env.GMAIL_USER ?? "";
+  // Gmail's send response only hands back its own message id, not the
+  // Message-ID header value we put in — so we generate and keep track of
+  // that ourselves, same way any outbound MTA would.
+  const domain = gmailUser.split("@")[1] ?? "localhost";
+  const rfcMessageId = `<${randomUUID()}@${domain}>`;
+
+  const headers = [
+    `To: ${to}`,
+    `From: ${gmailUser}`,
+    `Subject: ${subject}`,
+    `Message-ID: ${rfcMessageId}`,
+    "MIME-Version: 1.0",
+    'Content-Type: text/plain; charset="UTF-8"',
+    // In-Reply-To/References are both set to just the single most recent
+    // message in the thread, not a fully accumulated chain — a known
+    // simplification for now (same spirit as extractBodyText's text/html
+    // fallback above), since TicketMessage doesn't track a References list.
+    ...(inReplyTo ? [`In-Reply-To: ${inReplyTo}`, `References: ${inReplyTo}`] : []),
+  ];
+  const raw = `${headers.join("\r\n")}\r\n\r\n${bodyText}`;
+
+  const response = await gmail.users.messages.send({
+    userId: "me",
+    requestBody: {
+      raw: Buffer.from(raw).toString("base64url"),
+      threadId,
+    },
+  });
+
+  const gmailMessageId = response.data.id;
+  if (!gmailMessageId) throw new Error("Gmail messages.send returned no message id");
+
+  // Gmail can rewrite a self-supplied Message-ID header on send (it's known
+  // to replace it if it doesn't like the format, filing the original away
+  // under X-Google-Original-Message-ID instead) — if that happens and we
+  // kept trusting the id we generated above, every later reply's
+  // In-Reply-To/References would point at a Message-ID Gmail never actually
+  // used, silently breaking threading for the rest of the conversation. So
+  // re-fetch what Gmail actually stored and use that instead, falling back
+  // to our generated id only if the header is missing for some reason.
+  const sent = await gmail.users.messages.get({
+    userId: "me",
+    id: gmailMessageId,
+    format: "metadata",
+    metadataHeaders: ["Message-Id"],
+  });
+  const actualRfcMessageId =
+    sent.data.payload?.headers?.find((h) => h.name?.toLowerCase() === "message-id")?.value ??
+    rfcMessageId;
+
+  logger.info(
+    { gmailMessageId, threadId, rfcMessageId: actualRfcMessageId },
+    "Sent Gmail reply"
+  );
+  return { gmailMessageId, rfcMessageId: actualRfcMessageId };
 }

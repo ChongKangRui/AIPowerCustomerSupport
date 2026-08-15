@@ -169,3 +169,13 @@ export const bulkAssignTicketsSchema = z.object({
 });
 
 export type BulkAssignTicketsInput = z.infer<typeof bulkAssignTicketsSchema>;
+
+// Request-shape validation for POST /api/tickets/[id]/reply — an agent's
+// outbound reply, sent as real email via lib/gmail.ts's sendGmailReply() and
+// stored as an OUTBOUND/AGENT TicketMessage. Mutation payload, so (like
+// updateTicketStatusSchema above) bad input 400s rather than falling back.
+export const sendTicketReplySchema = z.object({
+  body: z.string().trim().min(1),
+});
+
+export type SendTicketReplyInput = z.infer<typeof sendTicketReplySchema>;

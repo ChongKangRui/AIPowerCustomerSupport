@@ -21,6 +21,7 @@ import { TicketConversation } from "@/components/tickets/ticket-conversation";
 import { TicketDetailSkeleton } from "@/components/tickets/ticket-detail-skeleton";
 import { useTicket } from "@/hooks/use-ticket";
 import { useUpdateTicketStatus } from "@/hooks/use-update-ticket-status";
+import { useSendTicketReply } from "@/hooks/use-send-ticket-reply";
 import { useAssignTicket } from "@/hooks/use-assign-ticket";
 import { useCurrentUser } from "@/hooks/use-current-user";
 import { useUsers } from "@/hooks/use-users";
@@ -35,8 +36,9 @@ import { Role, TicketStatus } from "@/lib/generated/prisma/enums";
 // here for now (see app/api/tickets/[id]/route.ts's ALLOWED_TRANSITIONS for
 // the rules the latter mirrors client-side, just to decide which buttons to
 // show — the API route is still the actual enforcement). The reply box
-// itself is UI-only: sending a real outbound email needs Gmail MIME/
-// threading support that doesn't exist yet in lib/gmail.ts. Same pattern
+// sends a real outbound email via useSendTicketReply
+// (app/api/tickets/[id]/reply/route.ts, threaded through
+// lib/gmail.ts's sendGmailReply()). Same pattern
 // for the assign control rendered in the header: this component owns
 // useAssignTicket + the isAdmin/agents it needs, the header just renders
 // what it's handed (see app/api/tickets/[id]/assign/route.ts for the
@@ -44,6 +46,7 @@ import { Role, TicketStatus } from "@/lib/generated/prisma/enums";
 export function TicketDetailView({ ticketId }: { ticketId: string }) {
   const { data: ticket, isLoading, isError } = useTicket(ticketId);
   const updateStatus = useUpdateTicketStatus(ticketId);
+  const sendReply = useSendTicketReply(ticketId);
   const assignTicket = useAssignTicket(ticketId);
   const { user } = useCurrentUser();
   const isAdmin = user?.role === Role.ADMIN;
@@ -52,10 +55,6 @@ export function TicketDetailView({ ticketId }: { ticketId: string }) {
   // hooks/use-users.ts's `enabled` param comment.
   const { users: agents } = useUsers({ enabled: isAdmin });
   const [closeDialogOpen, setCloseDialogOpen] = useState(false);
-  // UI-only for now — no send mutation exists yet (see ticket-detail-page
-  // plan: outbound Gmail send needs MIME/threading support that doesn't
-  // exist in lib/gmail.ts). Wiring this up to actually create an OUTBOUND
-  // TicketMessage + email the customer is a later increment.
   const [replyText, setReplyText] = useState("");
 
   if (isLoading) return <TicketDetailSkeleton />;
@@ -110,9 +109,20 @@ export function TicketDetailView({ ticketId }: { ticketId: string }) {
               rows={4}
               aria-label="Reply to customer"
             />
+            {sendReply.error && (
+              <p role="alert" className="text-sm text-destructive">
+                {sendReply.error.message}
+              </p>
+            )}
             <div className="flex justify-end">
-              {/* Not wired up yet — see the useState comment above. */}
-              <Button disabled={!replyText.trim()}>Send</Button>
+              <Button
+                disabled={!replyText.trim() || sendReply.isPending}
+                onClick={() =>
+                  sendReply.mutate(replyText, { onSuccess: () => setReplyText("") })
+                }
+              >
+                {sendReply.isPending ? "Sending…" : "Send"}
+              </Button>
             </div>
           </div>
 

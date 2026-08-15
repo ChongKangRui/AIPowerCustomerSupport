@@ -11,6 +11,7 @@ import { useTickets } from "@/hooks/use-tickets";
 import { useCurrentUser } from "@/hooks/use-current-user";
 import { useUsers } from "@/hooks/use-users";
 import { useBulkAssignTickets } from "@/hooks/use-bulk-assign-tickets";
+import { useSyncGmail } from "@/hooks/use-sync-gmail";
 import { useTicketsTable } from "@/components/tickets/use-tickets-table";
 import { AssignMenu } from "@/components/tickets/assign-menu";
 import { TicketsTable } from "@/components/tickets/tickets-table";
@@ -119,6 +120,8 @@ export function TicketsView() {
   // comment; agents never render anything that needs this list.
   const { users: agents } = useUsers({ enabled: isAdmin });
 
+  const syncGmail = useSyncGmail();
+
   const bulkAssign = useBulkAssignTickets();
   // Which single ticket's assign mutation is in flight, for the per-row
   // "Assigning…" state — bulkAssign.isPending alone can't distinguish a
@@ -185,6 +188,22 @@ export function TicketsView() {
           <option value="RESOLVED">Resolved</option>
           <option value="CLOSED">Closed</option>
         </select>
+        {/* Manual stand-in for a fast cron cadence — mailbox-wide, so it can
+            create/update tickets other than whatever's on this page, not
+            just refresh the current filter. See hooks/use-sync-gmail.ts. */}
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={syncGmail.isPending}
+          onClick={() => syncGmail.mutate()}
+        >
+          {syncGmail.isPending ? "Fetching…" : "Fetch Gmail"}
+        </Button>
+        {syncGmail.error && (
+          <p role="alert" className="text-sm text-destructive">
+            {syncGmail.error.message}
+          </p>
+        )}
       </div>
 
       {/* Admin-only bulk assign toolbar — only shown once at least one

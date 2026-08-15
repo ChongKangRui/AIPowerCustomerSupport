@@ -59,5 +59,11 @@ next-env.d.ts
 # for this project, not documentation meant to be shared or reviewed.
 /error-log.txt
 
+# Personal "how the whole project works" explainer — a reference doc for
+# understanding the codebase, not the project's actual documentation
+# (project-scope.md/tech-stack.md/implementation-plan.md are, and those stay
+# committed).
+/HOW-IT-WORKS.md
+
 # commit the env template
 !.env.example

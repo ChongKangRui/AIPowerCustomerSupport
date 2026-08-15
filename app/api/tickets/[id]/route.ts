@@ -2,39 +2,21 @@ import { NextResponse } from "next/server";
 
 import { ConflictError, NotFoundError, UnauthorizedError, withApiHandler } from "@/lib/api-handler";
 import { prisma } from "@/lib/prisma";
-import { Role, TicketStatus } from "@/lib/generated/prisma/enums";
-import type { Session } from "next-auth";
+import { findScopedTicket } from "@/lib/ticket-access";
+import { TicketStatus } from "@/lib/generated/prisma/enums";
 import { ticketDetailSelect, updateTicketStatusSchema } from "@/models/ticket.model";
 
-// Shared by GET and PATCH — mirrors GET /api/tickets's `where` scoping
-// (app/api/tickets/route.ts): Admins can load any ticket, Agents only their
-// own assigned one. Returning null (→ 404) rather than 403 for "exists but
-// not yours" is deliberate, same rationale as that route's own comment —
-// this route is its own authoritative entry point, independent of any
-// page-level guard, and a 404 doesn't confirm/deny another agent's ticket
-// exists.
-async function findScopedTicket(id: string, session: NonNullable<Session>) {
-  const ticket = await prisma.ticket.findUnique({
-    where: { id },
-    select: ticketDetailSelect,
-  });
-  if (!ticket) return null;
-  if (session.user.role !== Role.ADMIN && ticket.assignedTo?.id !== session.user.id) {
-    return null;
-  }
-  return ticket;
-}
-
 // GET /api/tickets/[id] — any authenticated user (Admin or Agent), scoped
-// per findScopedTicket above. Returns the full TicketDetail: metadata plus
-// the ordered conversation thread, for the detail page
+// per findScopedTicket (lib/ticket-access.ts, shared with the sibling reply
+// route). Returns the full TicketDetail: metadata plus the ordered
+// conversation thread, for the detail page
 // (components/tickets/ticket-detail-view.tsx).
 export const GET = withApiHandler<{ params: Promise<{ id: string }> }>(
   async (_request, context, log, session) => {
     if (!session?.user) throw new UnauthorizedError();
 
     const { id } = await context.params;
-    const ticket = await findScopedTicket(id, session);
+    const ticket = await findScopedTicket(id, session, ticketDetailSelect);
     if (!ticket) throw new NotFoundError("Ticket not found");
 
     log.info({ ticketId: id }, "fetched ticket detail");
@@ -66,7 +48,7 @@ export const PATCH = withApiHandler<{ params: Promise<{ id: string }> }>(
     const { id } = await context.params;
     const { status: nextStatus } = updateTicketStatusSchema.parse(await request.json());
 
-    const existing = await findScopedTicket(id, session);
+    const existing = await findScopedTicket(id, session, ticketDetailSelect);
     if (!existing) throw new NotFoundError("Ticket not found");
 
     if (!ALLOWED_TRANSITIONS[existing.status].includes(nextStatus)) {
