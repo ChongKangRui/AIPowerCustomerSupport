@@ -55,5 +55,9 @@ next-env.d.ts
 # prisma generated client (regenerated via `npm run db:generate`)
 /lib/generated/
 
+# Claude Code's running error/root-cause/fix log — personal debugging notes
+# for this project, not documentation meant to be shared or reviewed.
+/error-log.txt
+
 # commit the env template
 !.env.example
