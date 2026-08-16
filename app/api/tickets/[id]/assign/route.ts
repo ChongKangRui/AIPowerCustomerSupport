@@ -12,13 +12,13 @@ import { prisma } from "@/lib/prisma";
 import { Role, TicketStatus } from "@/lib/generated/prisma/enums";
 import { assignTicketSchema, ticketDetailSelect } from "@/models/ticket.model";
 
-// PATCH /api/tickets/[id]/assign — admin-only manual assignment for a single
-// ticket. Unlike GET/PATCH .../route.ts, there's no findScopedTicket-style
-// agent visibility scoping here: only Admins can call this at all, and an
-// Admin can already see/act on any ticket, so a plain findUnique is enough.
-// assignedToId: null unassigns. Only OPEN tickets are assignable — enforced
-// here (the actual boundary), mirrored client-side only for UX
-// (components/tickets/use-tickets-table.tsx, ticket-detail-header.tsx).
+// PATCH /api/tickets/[id]/assign is admin-only manual assignment for a single ticket.
+//
+// Unlike GET/PATCH .../route.ts, there is no findScopedTicket-style agent visibility scoping here.
+// Only Admins can call this at all, and an Admin can already see and act on any ticket, so a plain findUnique is enough.
+//
+// assignedToId: null unassigns.
+// Only OPEN tickets are assignable, enforced here as the actual boundary, and mirrored client-side only for UX (components/tickets/use-tickets-table.tsx, ticket-detail-header.tsx).
 export const PATCH = withApiHandler<{ params: Promise<{ id: string }> }>(
   async (request, context, log, session) => {
     if (!session?.user) throw new UnauthorizedError();

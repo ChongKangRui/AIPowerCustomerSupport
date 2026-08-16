@@ -20,12 +20,11 @@ import { useDeleteUser } from "@/hooks/use-delete-user";
 import { Role } from "@/lib/generated/prisma/enums";
 import type { UserListItem } from "@/models/user.model";
 
-// Per-row "delete" icon button rendered in components/users/users-table.tsx,
-// alongside EditUserDialog. One instance per row, own open state — same
-// self-contained pattern as edit-user-dialog.tsx. Unlike the create/edit
-// flow, this doesn't reuse UserFormDialog — it's a confirmation, not a
-// form, so it wraps the semantically distinct AlertDialog instead of the
-// generic Dialog.
+// This is the per-row "delete" icon button, rendered in components/users/users-table.tsx alongside EditUserDialog.
+// Each row gets its own instance with its own open state, the same self-contained pattern as edit-user-dialog.tsx.
+//
+// Unlike the create and edit flow, this does not reuse UserFormDialog.
+// This is a confirmation, not a form, so it wraps the semantically distinct AlertDialog instead of the generic Dialog.
 export function DeleteUserDialog({ user }: { user: UserListItem }) {
   const [open, setOpen] = useState(false);
   const isAdmin = user.role === Role.ADMIN;
@@ -38,13 +37,12 @@ export function DeleteUserDialog({ user }: { user: UserListItem }) {
     if (!nextOpen) deleteUserMutation.reset();
   }
 
-  // AlertDialogAction renders Radix's Dialog.Close under the hood, which
-  // auto-closes the dialog on click (composeEventHandlers runs our onClick,
-  // then its own onOpenChange(false), unless we preventDefault) — so
-  // without this, the dialog would close immediately on click, before the
-  // mutation even resolves, and a failed delete's error message would never
-  // be visible. preventDefault suppresses that; open is driven manually via
-  // the mutation's own onSuccess instead.
+  // AlertDialogAction renders Radix's Dialog.Close under the hood.
+  // That auto-closes the dialog on click: composeEventHandlers runs our onClick, then its own onOpenChange(false), unless we call preventDefault.
+  //
+  // Without preventDefault, the dialog would close immediately on click, before the mutation even resolves.
+  // A failed delete's error message would never be visible.
+  // preventDefault stops that. open is instead driven manually, through the mutation's own onSuccess.
   function handleDelete(event: React.MouseEvent<HTMLButtonElement>) {
     event.preventDefault();
     deleteUserMutation.mutate(user.id, {

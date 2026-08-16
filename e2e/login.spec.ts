@@ -2,29 +2,33 @@ import { expect, test } from "@playwright/test";
 
 import { ADMIN, AGENT } from "./seeded-users";
 
-// No storageState is configured for this file — every test here starts from
-// a clean, unauthenticated browser context and drives the real /login form,
-// since the form itself (not just "being logged in") is what's under test.
+// No storageState is configured for this file — every test here starts
+// from a clean, unauthenticated browser context and drives the real
+// /login form, since the form itself (not just "being logged in") is
+// what's under test.
+//
 // None of these tests write anything another test could race on: each
-// successful login only creates its own new Session row, and failed logins
-// don't touch the DB at all. Repeated failed logins for the same seeded
-// email (see the "invalid credentials" describe below) are also safe to run
-// in parallel with other specs logging in as that same account: lib/
-// rate-limiter.ts only gates on `RATE_LIMITING_ENABLED`, which is `NODE_ENV
-// === "production"` only — this suite's webServer runs `next dev`, so no
-// email+IP or per-IP counter is ever read or written here.
+// successful login only creates its own new Session row, and failed
+// logins don't touch the DB at all. Repeated failed logins for the same
+// seeded email (see the "invalid credentials" describe below) are also
+// safe to run in parallel with other specs logging in as that same
+// account — lib/rate-limiter.ts only gates on `RATE_LIMITING_ENABLED`,
+// which is `NODE_ENV === "production"` only. This suite's webServer runs
+// `next dev`, so no email+IP or per-IP counter is ever read or written here.
 //
 // Pure client-side behavior that doesn't need a real backend has moved to
-// app/login/login-form.test.tsx (a Vitest + Testing Library component test):
-// the "client-side validation" describe block (empty email, empty password,
-// malformed email — all just react-hook-form + zodResolver blocking a
-// submit) and the demo-account buttons' plain autofill-without-submit case.
+// app/login/login-form.test.tsx, a Vitest + Testing Library component
+// test: the "client-side validation" describe block (empty email, empty
+// password, malformed email — all just react-hook-form + zodResolver
+// blocking a submit) and the demo-account buttons' plain
+// autofill-without-submit case.
+//
 // What's left here is scoped to cases that only mean something against a
 // real dev server + database: a successful login actually creating a
-// session and redirecting, the generic invalid-credentials message actually
-// coming back from app/api/login/route.ts for both a wrong password and a
-// nonexistent email, and clicking a demo button *then submitting* to prove
-// the autofilled credentials really do authenticate.
+// session and redirecting, the generic invalid-credentials message
+// actually coming back from app/api/login/route.ts for both a wrong
+// password and a nonexistent email, and clicking a demo button *then
+// submitting* to prove the autofilled credentials really do authenticate.
 
 test.describe("successful login", () => {
   test("logs in as the seeded agent with typed credentials", async ({ page }) => {

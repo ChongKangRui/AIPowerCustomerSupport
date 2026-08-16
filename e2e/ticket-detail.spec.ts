@@ -15,67 +15,83 @@ import {
 // Coverage for the ticket detail feature: app/(main)/tickets/[id]/page.tsx,
 // components/tickets/ticket-detail-view.tsx (+ its Mark Resolved/Close
 // status actions), and GET/PATCH /api/tickets/[id]
-// (app/api/tickets/[id]/route.ts). GET/PATCH's role-scoping mirrors
-// GET /api/tickets — see that route's findScopedTicket comment — so the
-// negative cases here (404 for a scoped-out agent, on both verbs) are the
-// same "404, not 403" contract e2e/tickets.spec.ts already established for
-// the list endpoint.
+// (app/api/tickets/[id]/route.ts).
+//
+// GET/PATCH's role-scoping mirrors GET /api/tickets — see that route's
+// findScopedTicket comment — so the negative cases here (404 for a
+// scoped-out agent, on both verbs) are the same "404, not 403" contract
+// e2e/tickets.spec.ts already established for the list endpoint.
 //
 // Deliberately NOT covered here (see this file's originating task for the
 // full rationale):
-//   - POST /api/tickets/[id]/reply's *successful*-send happy path. The route
-//     is fully wired now (reply textarea/Send button in
-//     ticket-detail-view.tsx -> hooks/use-send-ticket-reply.ts -> this real
-//     endpoint), but a 200 response only happens after a real call to
-//     lib/gmail.ts's sendGmailReply() — an actual outbound Gmail API round
-//     trip. That must stay manual-only (already verified working manually;
-//     see the gitignored error-log.txt), never triggered from an automated
-//     suite and never faked via a mock/stub of lib/gmail.ts. What e2e *can*
-//     safely prove — the 400/401/404/409 guard paths that all return before
-//     sendGmailReply() is ever called — is covered in the
-//     "POST /api/tickets/[id]/reply" describe below.
+//
+//   - POST /api/tickets/[id]/reply's *successful*-send happy path. The
+//     route is fully wired now (reply textarea/Send button in
+//     ticket-detail-view.tsx -> hooks/use-send-ticket-reply.ts -> this
+//     real endpoint), but a 200 response only happens after a real call
+//     to lib/gmail.ts's sendGmailReply() — an actual outbound Gmail API
+//     round trip. That must stay manual-only (already verified working
+//     manually; see the gitignored error-log.txt), never triggered from
+//     an automated suite and never faked via a mock/stub of lib/gmail.ts.
+//     What e2e *can* safely prove — the 400/401/404/409 guard paths that
+//     all return before sendGmailReply() is ever called — is covered in
+//     the "POST /api/tickets/[id]/reply" describe below.
+//
+//   - Same reasoning applies to PATCH /api/tickets/[id]'s successful
+//     RESOLVED/CLOSED transitions, both called directly via the API and
+//     driven through the UI's Mark Resolved/Close buttons: that handler
+//     also calls the real sendGmailReply() before persisting the status
+//     change (see app/api/tickets/[id]/route.ts's PATCH). So those happy
+//     paths are excluded here too, for the same manual-only reason —
+//     only the guard paths that reject before ever reaching
+//     sendGmailReply() (401/404/409/400) are covered below.
+//
 //   - StatusBadge's status->variant mapping, TicketDetailHeader's
-//     customer/assignee fallback text, and TicketConversation's per-
-//     authorType label/empty-state logic — pure presentational branches,
-//     covered by their own co-located RTL component tests
+//     customer/assignee fallback text, and TicketConversation's
+//     per-authorType label/empty-state logic — pure presentational
+//     branches, covered by their own co-located RTL component tests
 //     (status-badge.test.tsx, ticket-detail-header.test.tsx,
 //     ticket-conversation.test.tsx).
-//   - Which action buttons show for which status, the Close confirm-dialog
-//     wiring itself, and the mutation-error message rendering — covered
-//     against a mocked apiClient by ticket-detail-view.test.tsx. What's left
-//     for here is only what a mock can't prove: that the real PATCH request
-//     round-trips through the real allow-list and is genuinely persisted.
+//
+//   - Which action buttons show for which status, the Close
+//     confirm-dialog wiring itself, and the mutation-error message
+//     rendering — covered against a mocked apiClient by
+//     ticket-detail-view.test.tsx. What's left for here is only what a
+//     mock can't prove: that the real PATCH request round-trips through
+//     the real allow-list and is genuinely persisted.
+//
 //   - Manual assignment (PATCH /api/tickets/[id]/assign and the bulk
 //     PATCH /api/tickets/assign): which control renders for which
-//     role/status, calling onAssign with the right id, and the mutation-error
-//     message rendering are all covered against a mocked apiClient by
-//     ticket-detail-header.test.tsx/ticket-detail-view.test.tsx (single) and
-//     tickets-table.test.tsx/use-tickets-table.test.ts/tickets-view.test.tsx
-//     (bulk). Request-body shape validation
+//     role/status, calling onAssign with the right id, and the
+//     mutation-error message rendering are all covered against a mocked
+//     apiClient by ticket-detail-header.test.tsx/ticket-detail-view.test.tsx
+//     (single) and tickets-table.test.tsx/use-tickets-table.test.ts/
+//     tickets-view.test.tsx (bulk). Request-body shape validation
 //     (assignTicketSchema/bulkAssignTicketsSchema) is covered by
 //     models/ticket.model.test.ts. What's left, in the two new describe
-//     blocks below plus one UI round trip, is only what those can't prove:
-//     the real 401/403/404/409/400 status codes, the bulk endpoint's
-//     all-or-nothing behavior against real rows, and that a real PATCH is
-//     genuinely persisted.
+//     blocks below plus one UI round trip, is only what those can't
+//     prove: the real 401/403/404/409/400 status codes, the bulk
+//     endpoint's all-or-nothing behavior against real rows, and that a
+//     real PATCH is genuinely persisted.
 //
 // Test data: same rationale as e2e/ticket-fixtures.ts's top comment —
 // tickets are Gmail-inbound only, no creation UI/API exists, so every
 // fixture below is written directly via raw `pg` through that module.
-// insertTicketMessage is a new helper added alongside this spec (see its own
-// comment in ticket-fixtures.ts) so the "GET returns a real messages array"
-// assertion is backed by an actual TicketMessage row, not an empty array.
+// insertTicketMessage is a new helper added alongside this spec (see its
+// own comment in ticket-fixtures.ts), so the "GET returns a real messages
+// array" assertion is backed by an actual TicketMessage row, not an empty
+// array.
 //
-// Shared-state isolation: unlike e2e/tickets.spec.ts, nothing here asserts
-// on a *global* set of tickets (e.g. "the list contains exactly these rows"
-// or "the total count is N") — every assertion below targets one specific,
-// uniquely-subjected ticket this file itself created, by id. That means this
-// file does NOT need test.describe.configure({ mode: "serial" }): a
-// beforeAll-seeded fixture set is safe to read from multiple parallel
-// workers, and every test that *mutates* a ticket's status creates its own
-// fresh row (via createTicket() below) rather than touching a shared one —
-// see the "PATCH ... happy-path transitions" and "UI status-action round
-// trip" describes.
+// Shared-state isolation: unlike e2e/tickets.spec.ts, nothing here
+// asserts on a *global* set of tickets (e.g. "the list contains exactly
+// these rows" or "the total count is N") — every assertion below targets
+// one specific, uniquely-subjected ticket this file itself created, by id.
+//
+// That means this file does NOT need test.describe.configure({ mode:
+// "serial" }): a beforeAll-seeded fixture set is safe to read from
+// multiple parallel workers, and every test that *mutates* a ticket
+// creates its own fresh row via createTicket() below rather than
+// touching a shared one.
 let agentId: string;
 let otherAgentId: string;
 
@@ -163,12 +179,13 @@ test.describe("navigating from the tickets list", () => {
     await expect(page.getByRole("heading", { level: 1, name: detailTicket.subject })).toBeVisible();
     // Not a bare getByText("Detail Customer") — this ticket also has one
     // CUSTOMER-authored message (seeded in beforeAll), and
-    // TicketConversation's author label for a CUSTOMER message is the same
-    // ticket.customerName ("Detail Customer"), so an unscoped match resolves
-    // to two elements (the header's "Detail Customer · <email>" <dd> and the
-    // message's author-label <span>) and fails Playwright's strict mode. The
-    // " · " separator only appears in TicketDetailHeader's composed
-    // "name · email" text, so matching that prefix is unique to the header.
+    // TicketConversation's author label for a CUSTOMER message is the
+    // same ticket.customerName ("Detail Customer"). So an unscoped match
+    // resolves to two elements (the header's "Detail Customer · <email>"
+    // <dd> and the message's author-label <span>) and fails Playwright's
+    // strict mode. The " · " separator only appears in
+    // TicketDetailHeader's composed "name · email" text, so matching that
+    // prefix is unique to the header.
     await expect(page.getByText(/Detail Customer ·/)).toBeVisible();
     await expect(page.getByText("OPEN", { exact: true })).toBeVisible();
   });
@@ -271,69 +288,11 @@ test.describe("PATCH /api/tickets/[id]", () => {
     }
   });
 
-  test.describe("happy-path transitions", () => {
-    test.use({ storageState: ADMIN_STORAGE_STATE });
-
-    test("OPEN -> RESOLVED is persisted", async ({ request }) => {
-      const ticket = await createTicket("OPEN", null);
-
-      const patchResponse = await request.patch(`/api/tickets/${ticket.id}`, {
-        data: { status: "RESOLVED" },
-      });
-      expect(patchResponse.status()).toBe(200);
-      expect((await patchResponse.json()).status).toBe("RESOLVED");
-
-      const getResponse = await request.get(`/api/tickets/${ticket.id}`);
-      expect((await getResponse.json()).status).toBe("RESOLVED");
-    });
-
-    test("OPEN -> CLOSED is persisted", async ({ request }) => {
-      const ticket = await createTicket("OPEN", null);
-
-      const patchResponse = await request.patch(`/api/tickets/${ticket.id}`, {
-        data: { status: "CLOSED" },
-      });
-      expect(patchResponse.status()).toBe(200);
-      expect((await patchResponse.json()).status).toBe("CLOSED");
-
-      const getResponse = await request.get(`/api/tickets/${ticket.id}`);
-      expect((await getResponse.json()).status).toBe("CLOSED");
-    });
-
-    test("RESOLVED -> CLOSED is persisted", async ({ request }) => {
-      const ticket = await createTicket("RESOLVED", null);
-
-      const patchResponse = await request.patch(`/api/tickets/${ticket.id}`, {
-        data: { status: "CLOSED" },
-      });
-      expect(patchResponse.status()).toBe(200);
-      expect((await patchResponse.json()).status).toBe("CLOSED");
-
-      const getResponse = await request.get(`/api/tickets/${ticket.id}`);
-      expect((await getResponse.json()).status).toBe("CLOSED");
-    });
-
-    // Nested so only this one case authenticates as the agent instead of
-    // the describe's admin — proving the *positive* side of PATCH
-    // role-scoping (not just the 404-for-someone-else's-ticket case above):
-    // an agent successfully transitioning a ticket that's actually theirs.
-    test.describe("as the assigned agent", () => {
-      test.use({ storageState: AGENT_STORAGE_STATE });
-
-      test("can transition their own ticket, and the change is persisted", async ({ request }) => {
-        const ticket = await createTicket("OPEN", agentId);
-
-        const patchResponse = await request.patch(`/api/tickets/${ticket.id}`, {
-          data: { status: "RESOLVED" },
-        });
-        expect(patchResponse.status()).toBe(200);
-        expect((await patchResponse.json()).status).toBe("RESOLVED");
-
-        const getResponse = await request.get(`/api/tickets/${ticket.id}`);
-        expect((await getResponse.json()).status).toBe("RESOLVED");
-      });
-    });
-  });
+  // Happy-path RESOLVED/CLOSED transitions (OPEN -> RESOLVED, OPEN ->
+  // CLOSED, RESOLVED -> CLOSED, and an agent transitioning their own
+  // ticket) are deliberately not covered here — see this file's top
+  // comment: a successful transition triggers a real sendGmailReply()
+  // call, same reason POST .../reply's successful send stays out of e2e.
 
   test.describe("illegal transitions", () => {
     test.use({ storageState: ADMIN_STORAGE_STATE });
@@ -604,46 +563,10 @@ test.describe("PATCH /api/tickets/assign (bulk)", () => {
   });
 });
 
-test.describe("status-action round trip on the detail page", () => {
-  test.use({ storageState: AGENT_STORAGE_STATE });
-
-  test("Mark Resolved updates the visible status and survives a reload", async ({ page }) => {
-    const ticket = await createTicket("OPEN", agentId);
-
-    await page.goto(`/tickets/${ticket.id}`);
-    await expect(page.getByRole("heading", { level: 1, name: ticket.subject })).toBeVisible();
-
-    await page.getByRole("button", { name: "Mark Resolved" }).click();
-
-    await expect(page.getByText("RESOLVED", { exact: true })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Mark Resolved" })).toHaveCount(0);
-
-    await page.reload();
-    await expect(page.getByText("RESOLVED", { exact: true })).toBeVisible();
-  });
-
-  test("Close, after confirming the dialog, closes the ticket and hides the actions, and survives a reload", async ({
-    page,
-  }) => {
-    const ticket = await createTicket("OPEN", agentId);
-
-    await page.goto(`/tickets/${ticket.id}`);
-    await expect(page.getByRole("heading", { level: 1, name: ticket.subject })).toBeVisible();
-
-    await page.getByRole("button", { name: "Close", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "Close this ticket?" })).toBeVisible();
-
-    await page.getByRole("button", { name: "Close ticket" }).click();
-
-    await expect(page.getByText("CLOSED", { exact: true })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Mark Resolved" })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Close", exact: true })).toHaveCount(0);
-
-    await page.reload();
-    await expect(page.getByText("CLOSED", { exact: true })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Close", exact: true })).toHaveCount(0);
-  });
-});
+// UI status-action round trip (Mark Resolved / Close, confirmed through
+// their dialogs) is deliberately not covered here — same reason as the
+// "happy-path transitions" describe above: confirming either dialog
+// triggers a real sendGmailReply() call. See this file's top comment.
 
 test.describe("assignment round trip on the detail page", () => {
   test.use({ storageState: ADMIN_STORAGE_STATE });

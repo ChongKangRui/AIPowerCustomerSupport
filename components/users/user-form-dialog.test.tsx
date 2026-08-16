@@ -6,14 +6,17 @@ import { Role } from "@/lib/generated/prisma/enums";
 import { UserFormDialog } from "@/components/users/user-form-dialog";
 import type { UserListItem } from "@/models/user.model";
 
-// apiClient is mocked at the module boundary rather than left to hit a real
-// network: useUpdateUser() (pulled in unconditionally by UserFormDialog, see
-// that component's comment on why both mutations are always called) chains
-// off useCurrentUser(), which fires a GET on mount — with no mock, jsdom has
-// no server to answer it and TanStack Query's default retry/backoff would
-// make every test in this file slow and its "was the API ever called"
-// assertions unreliable. get() below resolves to "no session", closest to
-// this dialog's real standalone usage in a test.
+// apiClient is mocked at the module boundary instead of hitting a real
+// network. UserFormDialog pulls in useUpdateUser() unconditionally (see
+// that component's comment for why both mutations always run).
+// useUpdateUser() chains off useCurrentUser(), which fires a GET on
+// mount.
+//
+// With no mock, jsdom has no server to answer that GET. TanStack
+// Query's default retry and backoff would then make every test in this
+// file slow, and its "was the API ever called" assertions unreliable.
+// get() below resolves to "no session," the closest match to this
+// dialog's real standalone usage in a test.
 const apiClientMocks = vi.hoisted(() => ({
   get: vi.fn(() => Promise.resolve({ data: null })),
   post: vi.fn(),
@@ -26,15 +29,17 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-// Coverage for UserFormDialog's client-side form mechanics — react-hook-form
-// wired to models/user.model.ts's zod schemas via zodResolver — in isolation
-// from the network/DB. This is the component-test half of what used to run
-// only as an e2e round trip through a real login + dev server + Postgres
-// (e2e/admin-create-user.spec.ts's "shows inline validation errors" test,
-// e2e/admin-edit-user.spec.ts's pre-fill assertions). The success/
-// duplicate-email/blank-password-really-unchanged paths still need a real
-// backend to mean anything and stay in those e2e files — see their own
-// top-of-file comments for why.
+// This covers UserFormDialog's client-side form mechanics: react-hook-form
+// wired to models/user.model.ts's zod schemas through zodResolver, in
+// isolation from the network and DB.
+//
+// This is the component-test half of what used to run only as an e2e
+// round trip through a real login, dev server, and Postgres
+// (e2e/admin-create-user.spec.ts's "shows inline validation errors"
+// test, e2e/admin-edit-user.spec.ts's pre-fill assertions). The
+// success, duplicate-email, and blank-password-really-unchanged paths
+// still need a real backend to mean anything, so they stay in those e2e
+// files. See their own top-of-file comments for why.
 function renderDialog(user?: UserListItem) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -68,13 +73,15 @@ describe("UserFormDialog — create mode", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Create user" }));
 
     expect(await within(dialog).findByText("Name must be at least 3 characters")).toBeTruthy();
-    // zod's built-in message for z.email() — models/user.model.ts doesn't
-    // override it (only name/password get custom messages there).
+    // This is zod's built-in message for z.email(). models/user.model.ts
+    // does not override it — only name and password get custom messages
+    // there.
     expect(within(dialog).getByText("Invalid email address")).toBeTruthy();
     expect(within(dialog).getByText("Password must be at least 8 characters")).toBeTruthy();
 
-    // Client-side validation blocked the submit entirely — no request ever
-    // reached apiClient, and the entered values are still there (not reset).
+    // Client-side validation blocked the submit entirely. No request
+    // ever reached apiClient, and the entered values are still there,
+    // not reset.
     expect(apiClientMocks.post).not.toHaveBeenCalled();
     expect((within(dialog).getByLabelText("Name") as HTMLInputElement).value).toBe("ab");
   });

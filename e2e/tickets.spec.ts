@@ -12,55 +12,61 @@ import {
 } from "./ticket-fixtures";
 
 // Coverage for the ticket list feature: app/(main)/tickets/page.tsx,
-// components/tickets/tickets-view.tsx + tickets-table.tsx, hooks/use-tickets.ts,
-// and GET /api/tickets (app/api/tickets/route.ts). No search/filter UI exists
-// yet (implementation-plan.md Phase 3 — that's a later increment), so this
-// file only covers listing, server-side sort order, and role-scoped
-// visibility — the actual correctness property this feature exists for.
-// There's also no page-level role redirect (unlike /users): any authenticated
-// user can view /tickets, and GET /api/tickets' `where` clause is the sole
-// authoritative enforcement of "agents only see their own assigned tickets"
-// (see that route's comment) — so "access control" below only has an
-// unauthenticated-visitor case, not an agent-redirected-away one.
+// components/tickets/tickets-view.tsx + tickets-table.tsx,
+// hooks/use-tickets.ts, and GET /api/tickets (app/api/tickets/route.ts).
 //
-// Test data: tickets are Gmail-inbound only in production — there's no
+// No search/filter UI exists yet (implementation-plan.md Phase 3 —
+// that's a later increment), so this file only covers listing,
+// server-side sort order, and role-scoped visibility — the actual
+// correctness property this feature exists for.
+//
+// There's also no page-level role redirect, unlike /users: any
+// authenticated user can view /tickets, and GET /api/tickets' `where`
+// clause is the sole authoritative enforcement of "agents only see their
+// own assigned tickets" (see that route's comment). So "access control"
+// below only has an unauthenticated-visitor case, not an
+// agent-redirected-away one.
+//
+// Test data: tickets are Gmail-inbound only in production. There's no
 // creation UI or API to drive, and prisma/seed.ts only seeds the two demo
 // users (see e2e/seeded-users.ts). e2e/ticket-fixtures.ts writes three
-// ticket rows directly via Prisma (own connection to the test database —
-// see that file's comment for why it can't reuse lib/prisma.ts's singleton):
-// one assigned to the seeded Agent, one unassigned, one assigned to a
-// throwaway second agent, with distinct/staggered createdAt timestamps. That
-// single fixture set is enough to cover sorting and both ends of
-// role-scoping (including proving "admin sees all" isn't accidentally
-// "admin sees own"), without needing separate rows per test.
+// ticket rows directly via Prisma — own connection to the test database,
+// see that file's comment for why it can't reuse lib/prisma.ts's
+// singleton: one assigned to the seeded Agent, one unassigned, one
+// assigned to a throwaway second agent, with distinct/staggered createdAt
+// timestamps. That single fixture set is enough to cover sorting and both
+// ends of role-scoping — including proving "admin sees all" isn't
+// accidentally "admin sees own" — without needing separate rows per test.
 //
-// The "Unassigned" rendering case (a ticket with assignedTo: null showing
-// the literal text "Unassigned" in its row) has moved to
-// components/tickets/tickets-table.test.tsx — TicketsTable is pure/
+// The "Unassigned" rendering case — a ticket with assignedTo: null
+// showing the literal text "Unassigned" in its row — has moved to
+// components/tickets/tickets-table.test.tsx. TicketsTable is pure/
 // presentational, driven only by its `tickets` prop, so that's cheap to
-// cover directly with a fixture object instead of a real seeded DB row and
-// full login/browser round trip. What stays here is what only a real
+// cover directly with a fixture object instead of a real seeded DB row
+// and full login/browser round trip. What stays here is what only a real
 // backend can prove: the server-side sort order and role-scoping GET
 // /api/tickets actually returns, and the page rendering that real data.
 //
-// Shared-state isolation: unlike e2e/users.spec.ts (whose read-only tests
-// are safe to run fully in parallel against the two fixed seeded users),
-// this file's assertions depend on knowing the *exact* fixture set — an
-// admin-sees-all test can't tell "sees every ticket" from "sees every ticket
-// except the ones some other worker's redundant reseed created" if the fixture
-// were re-created once per worker. `mode: "serial"` below forces this whole
-// file into a single worker, so seedTicketFixtures() runs exactly once (from
-// the top-level beforeAll), same DB the entire file's tests then only read.
+// Shared-state isolation: unlike e2e/users.spec.ts, whose read-only tests
+// are safe to run fully in parallel against the two fixed seeded users,
+// this file's assertions depend on knowing the *exact* fixture set. An
+// admin-sees-all test can't tell "sees every ticket" from "sees every
+// ticket except the ones some other worker's redundant reseed created" if
+// the fixture were re-created once per worker. `mode: "serial"` below
+// forces this whole file into a single worker, so seedTicketFixtures()
+// runs exactly once (from the top-level beforeAll), same DB the entire
+// file's tests then only read.
 //
 // A second fixture set, seeded alongside the 3-row one above, backs the
 // server-side sort/pagination coverage further down (GET /api/tickets ->
 // page/sortBy/sortDir params, response shape's total/page/pageSize). It's
-// unassigned (admin-visible, agent-invisible) and anchored a full day further
-// into the past than the 3-row set — see ticket-fixtures.ts's comment on
-// seedManyTicketFixtures for why that ordering choice keeps the pre-existing
-// "sorts newest-first" tests above passing unmodified: the 3-row set always
-// sorts ahead of these 25 rows under the default createdAt-desc order, so it
-// stays within page 1 regardless of this larger set's existence.
+// unassigned (admin-visible, agent-invisible) and anchored a full day
+// further into the past than the 3-row set — see ticket-fixtures.ts's
+// comment on seedManyTicketFixtures for why that ordering choice keeps
+// the pre-existing "sorts newest-first" tests above passing unmodified:
+// the 3-row set always sorts ahead of these 25 rows under the default
+// createdAt-desc order, so it stays within page 1 regardless of this
+// larger set's existence.
 test.describe.configure({ mode: "serial" });
 
 const PAGINATION_FIXTURE_COUNT = 25;
@@ -180,10 +186,10 @@ test.describe("GET /api/tickets", () => {
       const body = await response.json();
       expect(Array.isArray(body.tickets)).toBe(true);
 
-      // Response-envelope shape (added alongside server-side pagination) —
-      // `page`/`pageSize` are asserted as literal values, not just presence,
-      // since they're documented as "default page 1" and "fixed constant"
-      // respectively, not arbitrary numbers.
+      // Response-envelope shape, added alongside server-side pagination.
+      // `page`/`pageSize` are asserted as literal values, not just
+      // presence, since they're documented as "default page 1" and
+      // "fixed constant" respectively, not arbitrary numbers.
       expect(body).toEqual(
         expect.objectContaining({
           total: expect.any(Number),
@@ -288,32 +294,36 @@ test.describe("GET /api/tickets", () => {
   });
 });
 
-// Server-side pagination and sorting (page/sortBy/sortDir query params —
+// Server-side pagination and sorting — page/sortBy/sortDir query params,
 // models/ticket.model.ts's ticketListQuerySchema, applied via Prisma
-// orderBy/skip/take in app/api/tickets/route.ts). Deliberately request-level
-// (not UI): what's worth a real browser+server+DB round trip here is the
-// actual row order and 20-row cap the database enforces and the interaction
-// between pagination/sort params and role-scoping — not clicking a sort
-// header or a Previous/Next button, which is already covered against a
-// mocked API by components/tickets/tickets-table.test.tsx,
-// tickets-pagination.test.tsx, and tickets-view.test.tsx. Garbage/invalid
-// query values (negative page, unknown sortBy) are out of scope here too —
-// that fallback-to-default behavior is a pure schema concern already covered
-// by models/ticket.model.test.ts.
+// orderBy/skip/take in app/api/tickets/route.ts.
+//
+// Deliberately request-level, not UI: what's worth a real
+// browser+server+DB round trip here is the actual row order and 20-row
+// cap the database enforces, and the interaction between pagination/sort
+// params and role-scoping — not clicking a sort header or a Previous/Next
+// button, which is already covered against a mocked API by
+// components/tickets/tickets-table.test.tsx, tickets-pagination.test.tsx,
+// and tickets-view.test.tsx.
+//
+// Garbage/invalid query values (negative page, unknown sortBy) are out of
+// scope here too — that fallback-to-default behavior is a pure schema
+// concern already covered by models/ticket.model.test.ts.
 test.describe("GET /api/tickets pagination and sorting", () => {
   test.use({ storageState: ADMIN_STORAGE_STATE });
 
   // The exact-total/exact-page-reconstruction tests below scope every
-  // request with q=E2E Pagination Ticket (the subject prefix every row from
-  // seedManyTicketFixtures shares — see ticket-fixtures.ts) rather than
-  // asserting against the whole database's ticket count. This file is no
-  // longer the only spec that writes Ticket rows (e2e/ticket-detail.spec.ts
-  // now does too, per-test), so an admin's unfiltered GET /api/tickets total
-  // is no longer a closed, predictable number — it depends on whatever else
-  // happens to be running in parallel. Scoping by q sidesteps that entirely:
-  // these two tests only need to prove skip/take/total math is internally
-  // consistent for a set of rows this file fully owns, not that nothing else
-  // in the DB exists.
+  // request with q=E2E Pagination Ticket — the subject prefix every row
+  // from seedManyTicketFixtures shares, see ticket-fixtures.ts — rather
+  // than asserting against the whole database's ticket count.
+  //
+  // This file is no longer the only spec that writes Ticket rows
+  // (e2e/ticket-detail.spec.ts now does too, per-test), so an admin's
+  // unfiltered GET /api/tickets total is no longer a closed, predictable
+  // number — it depends on whatever else happens to be running in
+  // parallel. Scoping by q sidesteps that entirely: these two tests only
+  // need to prove skip/take/total math is internally consistent for a set
+  // of rows this file fully owns, not that nothing else in the DB exists.
   const paginationQuery = `q=${encodeURIComponent("E2E Pagination Ticket")}`;
 
   test("returns a full page of pageSize tickets and the true total, not capped at pageSize", async ({
@@ -371,10 +381,11 @@ test.describe("GET /api/tickets pagination and sorting", () => {
     const sortedIds = sortedBody.tickets.map((ticket: { id: string }) => ticket.id);
 
     // Every pagination fixture's subject ("E2E Pagination Ticket NN ...")
-    // sorts alphabetically before every 3-row fixture's subject ("E2E Ticket
-    // ..." — 'P' < 'T'), so the first (pageSize) rows in ascending-by-subject
-    // order are exactly the alphabetically-first pageSize pagination
-    // fixtures, independent of createdAt or insertion order.
+    // sorts alphabetically before every 3-row fixture's subject ("E2E
+    // Ticket ..." — 'P' < 'T'). So the first (pageSize) rows in
+    // ascending-by-subject order are exactly the alphabetically-first
+    // pageSize pagination fixtures, independent of createdAt or insertion
+    // order.
     const expectedIds = [...paginationFixtures]
       .sort((a, b) => (a.subject < b.subject ? -1 : a.subject > b.subject ? 1 : 0))
       .slice(0, TICKET_PAGE_SIZE)

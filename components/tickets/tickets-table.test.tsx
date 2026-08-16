@@ -8,16 +8,18 @@ import { useTicketsTable } from "@/components/tickets/use-tickets-table";
 import type { TicketListItem, TicketSortableField } from "@/models/ticket.model";
 import type { UserListItem } from "@/models/user.model";
 
-// TicketsTable is pure/presentational — driven entirely by the `table`
-// instance prop (built by useTicketsTable(), see that hook's own comment),
-// no data fetching or URL access itself — so it's cheap to cover directly
-// with React Testing Library instead of through a full e2e round trip (real
-// login + DB fixtures + Playwright browser). This is the component-test
-// half of what used to be exercised only via e2e/tickets.spec.ts's
-// "renders the literal text 'Unassigned'" test; the rest of that file
-// (server-side role-scoping, sort order/pagination returned by the API,
-// access control) still needs a real backend and stays there — see that
-// file's own comment.
+// TicketsTable is pure and presentational. The `table` instance prop
+// (built by useTicketsTable(), see that hook's own comment) drives it
+// entirely, with no data fetching or URL access of its own. That makes
+// it cheap to cover directly with React Testing Library, instead of
+// through a full e2e round trip of real login, DB fixtures, and a
+// Playwright browser.
+//
+// This is the component-test half of what used to run only through
+// e2e/tickets.spec.ts's "renders the literal text 'Unassigned'" test.
+// The rest of that file — server-side role-scoping, sort order and
+// pagination returned by the API, access control — still needs a real
+// backend and stays there. See that file's own comment.
 afterEach(cleanup);
 
 function ticket(overrides: Partial<TicketListItem>): TicketListItem {
@@ -34,12 +36,12 @@ function ticket(overrides: Partial<TicketListItem>): TicketListItem {
   };
 }
 
-// Renders TicketsTable behind a real useTicketsTable() instance — the hook
-// is a thin, well-tested-elsewhere (use-tickets-table.test.ts) translation
-// layer, so driving TicketsTable through it here (rather than stubbing a
-// fake `table` object) exercises the actual header/cell wiring the app
-// renders, at the cost of needing a wrapper component since hooks only run
-// inside one.
+// Renders TicketsTable behind a real useTicketsTable() instance. The
+// hook is a thin translation layer, already well tested elsewhere
+// (use-tickets-table.test.ts). Driving TicketsTable through it here,
+// instead of stubbing a fake `table` object, exercises the actual
+// header and cell wiring the app renders. The cost is a wrapper
+// component, since hooks run only inside one.
 function renderTicketsTable({
   tickets,
   sortBy = "createdAt",
@@ -167,13 +169,15 @@ describe("TicketsTable", () => {
     });
   });
 
-  // canAssign (threaded through from tickets-view.tsx's isAdmin check) gates
-  // both the leading select column and the Assigned column's interactivity.
+  // canAssign (threaded through from tickets-view.tsx's isAdmin check)
+  // gates both the leading select column and the Assigned column's
+  // interactivity.
+  //
   // The highest-stakes bug this whole feature could have is letting a
-  // non-OPEN ticket be selected/reassigned from the list, so that's what
-  // most of these cases target — see use-tickets-table.test.ts's
-  // enableRowSelection tests for the same guarantee at the predicate level,
-  // independent of rendering.
+  // non-OPEN ticket get selected or reassigned from the list. Most of
+  // these cases target that risk. See use-tickets-table.test.ts's
+  // enableRowSelection tests for the same guarantee at the predicate
+  // level, independent of rendering.
   describe("assignment (canAssign: true)", () => {
     const agents: UserListItem[] = [
       { id: "agent-1", name: "Grace Hopper", email: "grace@example.com", role: "AGENT" as const, createdAt: "" },
@@ -249,8 +253,8 @@ describe("TicketsTable", () => {
         onAssignOne,
       });
 
-      // Radix's DropdownMenuTrigger opens on pointerdown, not click — see
-      // ticket-detail-header.test.tsx's "assign control" describe block.
+      // Radix's DropdownMenuTrigger opens on pointerdown, not click.
+      // See ticket-detail-header.test.tsx's "assign control" describe block.
       fireEvent.pointerDown(screen.getByRole("button", { name: /Unassigned/ }), { button: 0 });
       fireEvent.click(await screen.findByRole("menuitemradio", { name: "Grace Hopper" }));
 

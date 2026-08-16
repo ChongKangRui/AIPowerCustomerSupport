@@ -8,12 +8,12 @@ import { EditUserDialog } from "@/components/users/edit-user-dialog";
 import { Role } from "@/lib/generated/prisma/enums";
 import type { UserListItem } from "@/models/user.model";
 
-// No rowSortingFeature/rowPaginationFeature here — unlike Tickets, Users
-// stays client-side search/role-filtered over the full unpaginated list
-// (see components/users/filter-users.ts's own comment on why that's a
-// scale-appropriate shortcut for a handful of accounts). This table
-// instance exists only to share DataTable's rendering shell with
-// TicketsTable, not to add sorting/pagination to Users.
+// This has no rowSortingFeature or rowPaginationFeature.
+// Unlike Tickets, Users stays client-side search/role-filtered over the full unpaginated list.
+// See components/users/filter-users.ts's own comment for why that is a scale-appropriate shortcut for a handful of accounts.
+//
+// This table instance exists only to share DataTable's rendering shell with TicketsTable.
+// It does not add sorting or pagination to Users.
 const features = tableFeatures({});
 
 const columnHelper = createColumnHelper<typeof features, UserListItem>();
@@ -61,9 +61,8 @@ const columns = columnHelper.columns([
   }),
 ]);
 
-// Shares DataTable's rendering shell with useTicketsTable — see that file's
-// own comment for the fuller rationale. No sort/page state to translate
-// here, so this hook is much thinner: just column defs + the users array.
+// This shares DataTable's rendering shell with useTicketsTable. See that file's own comment for the fuller rationale.
+// There is no sort or page state to translate here, so this hook is much thinner: just column defs and the users array.
 export function useUsersTable({ users }: { users: UserListItem[] }) {
   return useTable(
     { features, columns, data: users },

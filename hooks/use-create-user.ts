@@ -6,10 +6,9 @@ import { apiClient } from "@/lib/api-client";
 import type { CreateUserInput } from "@/models/user.model";
 import type { UserListItem } from "@/models/user.model";
 
-// Admin "create user" mutation — same TanStack Query + apiClient pattern as
-// the login mutation in app/login/login-form.tsx. Invalidates the ["users"]
-// query on success so the list in useUsers() (hooks/use-users.ts) picks up
-// the new row without a manual refetch.
+// This is the admin "create user" mutation.
+// It uses the same TanStack Query and apiClient pattern as the login mutation in app/login/login-form.tsx.
+// It invalidates the ["users"] query on success, so the list in useUsers() (hooks/use-users.ts) picks up the new row without a manual refetch.
 export function useCreateUser() {
   const queryClient = useQueryClient();
 

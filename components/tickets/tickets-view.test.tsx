@@ -20,11 +20,12 @@ const tickets: TicketListItem[] = [
   },
 ];
 
-// total: 45 (3 pages at TICKET_PAGE_SIZE=20) regardless of which page/sort
-// was requested — these tests assert on what TicketsView *requests* and
-// *navigates to* (apiClient.get's params, router.replace's query string),
-// not on server-side paging/sorting itself, which is covered server-side by
-// models/ticket.model.test.ts + the e2e suite.
+// total stays 45 (3 pages at TICKET_PAGE_SIZE=20), no matter which page
+// or sort the test requests. These tests check what TicketsView
+// requests and navigates to: apiClient.get's params, router.replace's
+// query string. They do not check server-side paging or sorting itself.
+// models/ticket.model.test.ts and the e2e suite cover that on the
+// server side.
 const apiClientMocks = vi.hoisted(() => ({
   get: vi.fn(),
   post: vi.fn(),
@@ -32,13 +33,15 @@ const apiClientMocks = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/api-client", () => ({ apiClient: apiClientMocks }));
 
-// TicketsView also calls useCurrentUser() (GET /api/auth/session, for the
-// admin check gating the select column/bulk toolbar) and useUsers()
-// (GET /api/users, the assignee list) — apiClientMocks.get is shared across
-// every GET this component makes, so it has to branch on the requested url.
-// Defaults to isAdmin: false / agents: [] (the pre-assignment beforeEach
-// behavior every existing test below still relies on); tests that need the
-// admin path call this again with isAdmin: true before rendering.
+// TicketsView also calls useCurrentUser() (GET /api/auth/session, for
+// the admin check that gates the select column and bulk toolbar) and
+// useUsers() (GET /api/users, the assignee list). apiClientMocks.get is
+// shared across every GET this component makes, so it must branch on
+// the requested url.
+//
+// Defaults to isAdmin: false and agents: []. Every test below still
+// relies on that pre-assignment beforeEach behavior. Tests that need
+// the admin path call this again with isAdmin: true before rendering.
 function mockApiGet({ isAdmin = false, agents = [] as UserListItem[] } = {}) {
   apiClientMocks.get.mockImplementation((url: string) => {
     if (url === "/api/auth/session") {
@@ -55,12 +58,14 @@ function mockApiGet({ isAdmin = false, agents = [] as UserListItem[] } = {}) {
   });
 }
 
-// TicketsView reads page/sort from useSearchParams and navigates via
-// router.replace(pathname + query, { scroll: false }) — mocked the same way
-// app/login/login-form.test.tsx mocks next/navigation, since none of this
-// needs an actual Next.js App Router tree. navigationMocks.searchParams is
-// mutable per-test (set before render) so "initial state read from the URL"
-// can be exercised directly, unlike login-form.test.tsx which never varies it.
+// TicketsView reads page and sort from useSearchParams, and navigates
+// through router.replace(pathname + query, { scroll: false }). This
+// mocks next/navigation the same way app/login/login-form.test.tsx
+// does, since none of this needs a real Next.js App Router tree.
+//
+// navigationMocks.searchParams is mutable per test, set before render.
+// That lets "initial state read from the URL" get exercised directly,
+// unlike login-form.test.tsx, which never varies it.
 const navigationMocks = vi.hoisted(() => ({
   replace: vi.fn(),
   searchParams: new URLSearchParams(),
@@ -90,12 +95,14 @@ function renderTicketsView() {
       <TicketsView />
     </QueryClientProvider>
   );
-  // Exposed so a test can simulate a URL change actually taking effect (see
-  // the "changing the status filter" selection-reset test below) — router.replace
-  // is mocked to a no-op (it doesn't touch navigationMocks.searchParams), so
-  // nothing re-renders TicketsView with new params on its own the way a real
-  // Next.js navigation would; a test has to mutate navigationMocks.searchParams
-  // itself and force this same tree to re-render.
+  // Exposed so a test can simulate a URL change actually taking effect.
+  // See the "changing the status filter" selection-reset test below.
+  //
+  // router.replace is mocked to a no-op. It does not touch
+  // navigationMocks.searchParams, so nothing re-renders TicketsView with
+  // new params on its own, the way a real Next.js navigation would. A
+  // test must mutate navigationMocks.searchParams itself and force this
+  // same tree to re-render.
   return {
     ...view,
     rerenderWithCurrentSearchParams: () =>
@@ -107,16 +114,19 @@ function renderTicketsView() {
   };
 }
 
-// Coverage for TicketsView's URL-sync *wiring* — reading initial page/sort
-// off the URL, and that a sort-header click or a Previous/Next click
-// navigates via router.replace with the right query string. This is new
-// ground for this codebase (no existing component writes to the URL — see
-// this component's own comment), so it's covered here rather than only via
-// e2e. TicketsTable/TicketsPagination's own rendering and
-// useTicketsTable's TanStack-shape translation have their own dedicated
-// tests; this file only proves TicketsView glues them to the URL correctly.
-// The real GET /api/tickets sort/pagination behavior needs a real backend
-// and stays in e2e/tickets.spec.ts.
+// This covers TicketsView's URL-sync wiring: reading the initial page
+// and sort off the URL, and that a sort-header click or a Previous/Next
+// click navigates through router.replace with the right query string.
+//
+// This is new ground for this codebase. No existing component writes to
+// the URL (see this component's own comment), so this file covers it
+// directly instead of relying only on e2e. TicketsTable and
+// TicketsPagination's own rendering, and useTicketsTable's TanStack-shape
+// translation, have their own dedicated tests. This file proves only
+// that TicketsView glues them to the URL correctly.
+//
+// The real GET /api/tickets sort/pagination behavior needs a real
+// backend and stays in e2e/tickets.spec.ts.
 describe("TicketsView", () => {
   it("requests the page/sort/status/q read from the initial URL", async () => {
     navigationMocks.searchParams = new URLSearchParams(
@@ -214,9 +224,10 @@ describe("TicketsView", () => {
   describe("debounced search", () => {
     afterEach(() => vi.useRealTimers());
 
-    // setState calls that happen inside a fake-timer callback aren't picked
-    // up by React unless the advance itself runs inside act() — see
-    // hooks/use-debounced-value.test.ts's own comment for the same gotcha.
+    // React does not pick up setState calls made inside a fake-timer
+    // callback unless the advance itself runs inside act(). See
+    // hooks/use-debounced-value.test.ts's own comment for the same
+    // gotcha.
     it("does not navigate until 700ms of no further typing has passed", async () => {
       renderTicketsView();
       await screen.findByText(tickets[0].subject);
@@ -248,7 +259,7 @@ describe("TicketsView", () => {
       expect(navigationMocks.replace).not.toHaveBeenCalled(); // still reset, not committed
 
       await act(() => vi.advanceTimersByTimeAsync(1));
-      // Only ever navigates once, and with the latest value — never with the
+      // Navigates only once, with the latest value. It never uses the
       // intermediate "log".
       expect(navigationMocks.replace).toHaveBeenCalledTimes(1);
       expect(navigationMocks.replace).toHaveBeenCalledWith(
@@ -258,15 +269,17 @@ describe("TicketsView", () => {
     });
   });
 
-  // The select column/per-row assign control's own rendering is covered by
-  // tickets-table.test.tsx; the assign control's admin/OPEN gating by
-  // ticket-detail-header.test.tsx (same gating logic, mirrored here). What's
-  // left to prove at this level: the bulk toolbar appears/disappears with
-  // selection, a bulk assign round-trips through the real mutation, and —
-  // the trickiest bit, since it's what tripped the
-  // react-hooks/set-state-in-effect lint rule during development — selection
-  // is genuinely cleared by any page/sort/status/q change, not just by
-  // clicking Clear.
+  // tickets-table.test.tsx covers the select column and per-row assign
+  // control's own rendering. ticket-detail-header.test.tsx covers the
+  // assign control's admin/OPEN gating (the same gating logic, mirrored
+  // here).
+  //
+  // What is left to prove at this level: the bulk toolbar appears and
+  // disappears with selection, a bulk assign round-trips through the
+  // real mutation, and selection genuinely clears on any page/sort/
+  // status/q change, not just on clicking Clear. That last part is the
+  // trickiest bit — it is what tripped the react-hooks/set-state-in-effect
+  // lint rule during development.
   describe("bulk assign toolbar (admin)", () => {
     const agents: UserListItem[] = [
       { id: "agent-1", name: "Grace Hopper", email: "grace@example.com", role: Role.AGENT, createdAt: "" },
@@ -292,16 +305,17 @@ describe("TicketsView", () => {
       fireEvent.click(screen.getByRole("checkbox", { name: `Select ${tickets[0].subject}` }));
       await screen.findByText("1 ticket selected");
 
-      // Radix's DropdownMenuTrigger opens on pointerdown, not click — see
-      // ticket-detail-header.test.tsx's "assign control" describe block.
+      // Radix's DropdownMenuTrigger opens on pointerdown, not click.
+      // See ticket-detail-header.test.tsx's "assign control" describe block.
       fireEvent.pointerDown(screen.getByRole("button", { name: "Assign to…" }), { button: 0 });
       fireEvent.click(await screen.findByRole("menuitemradio", { name: "Grace Hopper" }));
 
-      // Unlike the plain-callback assertions in tickets-table.test.tsx/
-      // ticket-detail-header.test.tsx (onAssign/onAssignOne fire synchronously
-      // through React's event handling), this goes through a real
-      // useMutation().mutate() call — same reasoning as
-      // ticket-detail-view.test.tsx's PATCH assertions, which all wait too.
+      // Unlike the plain-callback assertions in tickets-table.test.tsx
+      // and ticket-detail-header.test.tsx, where onAssign/onAssignOne
+      // fire synchronously through React's event handling, this goes
+      // through a real useMutation().mutate() call. That is the same
+      // reason ticket-detail-view.test.tsx's PATCH assertions all wait
+      // too.
       await waitFor(() =>
         expect(apiClientMocks.patch).toHaveBeenCalledWith("/api/tickets/assign", {
           ticketIds: ["ticket-1"],
@@ -318,10 +332,10 @@ describe("TicketsView", () => {
       fireEvent.click(screen.getByRole("checkbox", { name: `Select ${tickets[0].subject}` }));
       await screen.findByText("1 ticket selected");
 
-      // router.replace is mocked to a no-op — see renderTicketsView's own
-      // comment — so this simulates what a real navigation (a status-filter
-      // change, or equally a browser back/forward) leaves TicketsView
-      // reading on its next render.
+      // router.replace is mocked to a no-op (see renderTicketsView's own
+      // comment). So this simulates what a real navigation, such as a
+      // status-filter change or a browser back/forward, leaves
+      // TicketsView reading on its next render.
       navigationMocks.searchParams = new URLSearchParams("status=OPEN");
       rerenderWithCurrentSearchParams();
 

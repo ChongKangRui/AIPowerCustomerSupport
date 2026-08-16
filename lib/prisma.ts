@@ -3,7 +3,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { resolveDatabaseUrl } from "@/lib/database-url";
 import { PrismaClient } from "@/lib/generated/prisma/client";
 
-// Reuse the client across hot reloads in dev, so we don't exhaust Neon connections.
+// Reuses the client across hot reloads in dev. This stops the app from exhausting Neon connections.
 const globalForPrisma = globalThis as unknown as {
   prisma?: PrismaClient;
 };

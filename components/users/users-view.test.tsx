@@ -21,12 +21,14 @@ const agent: UserListItem = {
   createdAt: "2026-01-02T00:00:00.000Z",
 };
 
-// Routes the shared apiClient mock by URL — UsersView pulls in both
-// useUsers() (GET /api/users) and, via the nested CreateUserDialog →
-// UserFormDialog → useCreateUser/useUpdateUser, useCurrentUser() (GET
-// /api/auth/session). Same reasoning as
-// components/users/user-form-dialog.test.tsx for why this is mocked instead
-// of hitting a real network from jsdom.
+// Routes the shared apiClient mock by URL. UsersView pulls in both
+// useUsers() (GET /api/users) and useCurrentUser() (GET
+// /api/auth/session), the latter through the nested CreateUserDialog,
+// UserFormDialog, and useCreateUser/useUpdateUser.
+//
+// This mocks apiClient for the same reason
+// components/users/user-form-dialog.test.tsx does, instead of hitting a
+// real network from jsdom.
 const apiClientMocks = vi.hoisted(() => ({
   get: vi.fn((url: string) => {
     if (url === "/api/users") return Promise.resolve({ data: { users: [admin, agent] } });
@@ -41,18 +43,22 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-// Coverage for the search/role-filter *wiring* in UsersView — that typing
-// into the search input and picking a role really does narrow the rendered
-// UsersTable. This is the component-test half of what used to run only as
-// an e2e round trip through a real login + dev server + seeded Postgres rows
+// This covers the search and role-filter wiring in UsersView: that
+// typing into the search input and picking a role really does narrow
+// the rendered UsersTable.
+//
+// This is the component-test half of what used to run only as an e2e
+// round trip through a real login, dev server, and seeded Postgres rows
 // (e2e/users.spec.ts's "searching by a unique email…" and "filtering by
-// role…" tests). The actual filter *logic* (case-insensitivity, AND vs OR,
-// null-name handling, etc.) already has its own exhaustive unit coverage in
-// components/users/filter-users.test.ts — this file only proves the
-// component calls it with the right inputs and re-renders. Access
-// control and the live-listing-of-real-seeded-users assertions stay in
-// e2e/users.spec.ts, since those need a real authenticated session and DB —
-// see that file's own comment.
+// role…" tests). The actual filter logic — case-insensitivity, AND
+// versus OR, null-name handling, and more — already has its own
+// exhaustive unit coverage in components/users/filter-users.test.ts.
+// This file proves only that the component calls it with the right
+// inputs and re-renders.
+//
+// Access control and the live-listing-of-real-seeded-users assertions
+// stay in e2e/users.spec.ts. Those need a real authenticated session
+// and DB. See that file's own comment.
 function renderUsersView() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },

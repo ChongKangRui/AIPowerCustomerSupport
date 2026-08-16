@@ -1,10 +1,8 @@
 import { z } from "zod";
 
-// Request-shape validation for the auth endpoints (app/api/login,
-// app/api/logout) lives here rather than inline in the route files, so it's
-// one shared, importable source of truth if anything else ever needs the
-// same shape/type (a login form's client-side validation, a future "invite
-// user" admin action reusing the password rules, etc).
+// This checks the request body for the auth endpoints: app/api/login and app/api/logout.
+// It lives here, not inline in the route files, as one shared, importable source of truth.
+// Anything else that needs the same shape or type can reuse it: a login form's client-side check, or a future "invite user" admin action that reuses the password rules.
 
 export const loginSchema = z.object({
   email: z.email().trim().toLowerCase(),

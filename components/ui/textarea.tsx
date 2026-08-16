@@ -2,10 +2,9 @@ import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
-// Multiline counterpart to components/ui/input.tsx — same border/focus/
-// disabled/aria-invalid treatment, just a <textarea> instead of an <input>
-// (no `type` prop, min-height instead of a fixed `h-8`, field-sizing so it
-// grows with content up to a max instead of scrolling internally).
+// This is the multiline counterpart to components/ui/input.tsx.
+// It gets the same border, focus, disabled, and aria-invalid treatment, just on a <textarea> instead of an <input>.
+// It has no `type` prop, min-height instead of a fixed `h-8`, and field-sizing so it grows with content up to a max instead of scrolling internally.
 function Textarea({ className, ...props }: React.ComponentProps<"textarea">) {
   return (
     <textarea

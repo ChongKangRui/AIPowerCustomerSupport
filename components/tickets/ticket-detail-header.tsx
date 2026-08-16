@@ -10,19 +10,15 @@ import { TicketStatus } from "@/lib/generated/prisma/enums";
 import type { TicketDetail } from "@/models/ticket.model";
 import type { UserListItem } from "@/models/user.model";
 
-// Header block of the ticket detail page — back link, subject/status, and
-// the customer/assignee summary line. Split out of
-// ticket-detail-view.tsx so that component's job stays "fetch the ticket +
-// orchestrate the page's sections" rather than also owning this markup.
+// This is the header block of the ticket detail page: the back link, subject and status, and the customer and assignee summary line.
+// It is split out of ticket-detail-view.tsx, so that component's job stays "fetch the ticket and orchestrate the page's sections", not also owning this markup.
 //
-// "use client" was added for the AssignMenu dropdown below — everything
-// else here is still plain markup, but this is the file rendering the one
-// interactive element. isAdmin/agents/onAssign/assignPending are all owned
-// by ticket-detail-view.tsx (which already holds the equivalent
-// useUpdateTicketStatus mutation for Mark Resolved/Close) and just passed
-// through; assignment is only ever offered for OPEN tickets (see
-// app/api/tickets/[id]/assign/route.ts, the actual enforcement) and only to
-// admins (see project-scope.md).
+// "use client" was added for the AssignMenu dropdown below.
+// Everything else here is still plain markup, but this is the file rendering the one interactive element.
+//
+// isAdmin, agents, onAssign, and assignPending are all owned by ticket-detail-view.tsx, which already holds the equivalent useUpdateTicketStatus mutation for Mark Resolved/Close.
+// This component just passes them through.
+// Assignment is only ever offered for OPEN tickets — see app/api/tickets/[id]/assign/route.ts for the actual enforcement — and only to admins (see project-scope.md).
 export function TicketDetailHeader({
   ticket,
   isAdmin,

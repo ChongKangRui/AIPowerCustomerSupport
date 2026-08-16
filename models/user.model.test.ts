@@ -29,7 +29,7 @@ describe("createUserSchema", () => {
     });
   });
 
-  // .trim() runs before .min(3), so surrounding whitespace doesn't let a
+  // .trim() runs before .min(3). So surrounding whitespace cannot let a
   // too-short name sneak past validation.
   it("rejects a name that is too short after trimming", () => {
     const result = createUserSchema.safeParse({

@@ -8,34 +8,38 @@ import { resolveTestDatabaseUrl } from "@/lib/database-url";
 
 import { AGENT } from "./seeded-users";
 
-// There's no ticket-creation UI or API (tickets are Gmail-inbound only —
-// see app/api/tickets/route.ts's closing comment), and prisma/seed.ts only
-// seeds the two demo users, so e2e/tickets.spec.ts's own beforeAll uses this
-// module to write ticket rows directly, the same way a real inbound email
-// would have created them.
+// There's no ticket-creation UI or API — tickets are Gmail-inbound only,
+// see app/api/tickets/route.ts's closing comment — and prisma/seed.ts
+// only seeds the two demo users. So e2e/tickets.spec.ts's own beforeAll
+// uses this module to write ticket rows directly, the same way a real
+// inbound email would have created them.
 //
-// This talks to Postgres with the plain `pg` driver (same import
-// e2e/global-setup.ts already uses to create the test database itself)
-// rather than the generated Prisma client: the generated client
-// (lib/generated/prisma/client.ts) is ESM-only — it reads `import.meta.url`
-// at module scope to resolve its own `__dirname` — which works fine under
-// Next.js's bundler (how lib/prisma.ts uses it) and under `tsx`
-// (prisma/seed.ts), but not under Playwright's own TypeScript transform,
-// which compiles e2e/*.ts to CommonJS; loading it from here throws
-// "Cannot use 'import.meta' outside a module". Raw SQL avoids the generated
-// client entirely. Column/table names below are quoted verbatim
-// (Postgres lowercases unquoted identifiers) because nothing in
-// prisma/schema.prisma uses @@map/@map — the table and column names are
-// exactly the Prisma model/field names.
+// This talks to Postgres with the plain `pg` driver, same import
+// e2e/global-setup.ts already uses to create the test database itself,
+// rather than the generated Prisma client. The generated client
+// (lib/generated/prisma/client.ts) is ESM-only — it reads
+// `import.meta.url` at module scope to resolve its own `__dirname`.
+// That works fine under Next.js's bundler (how lib/prisma.ts uses it) and
+// under `tsx` (prisma/seed.ts), but not under Playwright's own
+// TypeScript transform, which compiles e2e/*.ts to CommonJS — loading it
+// from here throws "Cannot use 'import.meta' outside a module". Raw SQL
+// avoids the generated client entirely.
+//
+// Column/table names below are quoted verbatim — Postgres lowercases
+// unquoted identifiers — because nothing in prisma/schema.prisma uses
+// @@map/@map: the table and column names are exactly the Prisma
+// model/field names.
 
-// Opens a fresh `pg` connection to the test database, hands it to `fn`, and
-// always closes it afterward — the same connect/try/finally/end shape every
-// exported seeding function below repeats. e2e/ticket-detail.spec.ts uses
-// this directly (rather than duplicating that boilerplate) since, unlike
-// e2e/tickets.spec.ts's single shared-fixture-set beforeAll, that spec needs
-// a fresh, uniquely-identified ticket per mutating test (see this file's and
-// that spec's shared-DB-parallelism notes) — many short-lived connections,
-// one per test, instead of one long-lived one.
+// Opens a fresh `pg` connection to the test database, hands it to `fn`,
+// and always closes it afterward — the same connect/try/finally/end
+// shape every exported seeding function below repeats.
+//
+// e2e/ticket-detail.spec.ts uses this directly, rather than duplicating
+// that boilerplate, since — unlike e2e/tickets.spec.ts's single
+// shared-fixture-set beforeAll — that spec needs a fresh,
+// uniquely-identified ticket per mutating test (see this file's and that
+// spec's shared-DB-parallelism notes): many short-lived connections, one
+// per test, instead of one long-lived one.
 export async function withTestDbClient<T>(fn: (client: Client) => Promise<T>): Promise<T> {
   const client = new Client({ connectionString: resolveTestDatabaseUrl() });
   await client.connect();
@@ -105,9 +109,9 @@ export async function seedTicketFixtures(): Promise<TicketFixtures> {
 }
 
 // Looks up the seeded Agent's real User.id by email (e2e/seeded-users.ts's
-// AGENT) — shared by seedTicketFixtures above and e2e/ticket-detail.spec.ts,
-// which needs the real id to build tickets "assigned to the logged-in
-// agent" without hardcoding/guessing it.
+// AGENT). Shared by seedTicketFixtures above and
+// e2e/ticket-detail.spec.ts, which needs the real id to build tickets
+// "assigned to the logged-in agent" without hardcoding/guessing it.
 export async function getSeededAgentId(client: Client): Promise<string> {
   const agentResult = await client.query<{ id: string }>(
     `SELECT id FROM "User" WHERE email = $1`,
@@ -171,24 +175,27 @@ export async function insertTicket(
   return { id, subject: ticket.subject };
 }
 
-// Seeds `count` additional, distinctly-subjected tickets for the pagination/
-// sort e2e coverage in e2e/tickets.spec.ts (the 3-row set above is too few to
-// prove a 20-row page cap or a real multi-page split). Left unassigned so
-// they're visible under ADMIN_STORAGE_STATE (admin's `where` is unscoped)
-// without needing another throwaway agent, and so they never show up under
-// AGENT_STORAGE_STATE — keeping this set's cross-talk with the 3-row fixture
-// set and with the agent-scoping tests at zero.
+// Seeds `count` additional, distinctly-subjected tickets for the
+// pagination/sort e2e coverage in e2e/tickets.spec.ts — the 3-row set
+// above is too few to prove a 20-row page cap or a real multi-page split.
 //
-// createdAt is deliberately anchored a full day in the past (minus a small
-// per-row stagger), not "now minus a few minutes" like the 3-row set above:
-// GET /api/tickets's *default* sort is createdAt desc, and the existing
-// "sorts newest-first" tests (both the UI row-order test and the API
-// id-order test) assert against the 3-row set assuming it's within page 1's
-// top 3 rows. Anchoring this set further into the past than the 3-row set,
-// regardless of which fixture function happens to run first in a given
-// beforeAll, keeps those pre-existing tests passing unmodified while still
-// giving each of the `count` rows its own distinct, orderable timestamp for
-// the pagination assertions that do target this set specifically.
+// Left unassigned so they're visible under ADMIN_STORAGE_STATE (admin's
+// `where` is unscoped) without needing another throwaway agent, and so
+// they never show up under AGENT_STORAGE_STATE — keeping this set's
+// cross-talk with the 3-row fixture set and with the agent-scoping tests
+// at zero.
+//
+// createdAt is deliberately anchored a full day in the past (minus a
+// small per-row stagger), not "now minus a few minutes" like the 3-row
+// set above. GET /api/tickets's *default* sort is createdAt desc, and the
+// existing "sorts newest-first" tests (both the UI row-order test and the
+// API id-order test) assert against the 3-row set assuming it's within
+// page 1's top 3 rows. Anchoring this set further into the past than the
+// 3-row set, regardless of which fixture function happens to run first in
+// a given beforeAll, keeps those pre-existing tests passing unmodified
+// while still giving each of the `count` rows its own distinct, orderable
+// timestamp for the pagination assertions that do target this set
+// specifically.
 export async function seedManyTicketFixtures(count: number): Promise<TicketFixture[]> {
   const client = new Client({ connectionString: resolveTestDatabaseUrl() });
   await client.connect();
@@ -229,13 +236,14 @@ export async function seedManyTicketFixtures(count: number): Promise<TicketFixtu
   }
 }
 
-// Inserts a single TicketMessage row for e2e/ticket-detail.spec.ts — that
-// spec needs to prove GET /api/tickets/[id]'s `messages` array (and the
-// detail page's conversation thread) reflect a real DB row, not just an
+// Inserts a single TicketMessage row for e2e/ticket-detail.spec.ts. That
+// spec needs to prove GET /api/tickets/[id]'s `messages` array, and the
+// detail page's conversation thread, reflect a real DB row, not just an
 // empty array. Mirrors insertTicket's raw-`pg` approach and rationale
 // (see this file's top comment) rather than the generated Prisma client.
-// `gmailMessageId` must be globally unique (schema's @unique) — callers pass
-// their own run-scoped value, same convention insertTicket uses for
+//
+// `gmailMessageId` must be globally unique (schema's @unique) — callers
+// pass their own run-scoped value, same convention insertTicket uses for
 // gmailThreadId.
 export async function insertTicketMessage(
   client: Client,

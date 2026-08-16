@@ -27,16 +27,15 @@ import {
 type FilterState = { status: TicketStatusFilter; q: string };
 type SortState = { sortBy: TicketSortableField; sortDir: "asc" | "desc" };
 
-// How long a pause in typing has to last before the subject search actually
-// fires a request — see hooks/use-debounced-value.ts.
+// This is how long a pause in typing has to last before the subject search actually fires a request.
+// See hooks/use-debounced-value.ts.
 const SEARCH_DEBOUNCE_MS = 700;
 
-// Owns the URL as the source of truth for page/sort/status/q — nothing else
-// in this codebase writes to the URL (app/login/login-form.tsx only ever
-// reads callbackUrl once). Reusing ticketListQuerySchema (the same schema
-// GET /api/tickets validates with) to parse searchParams means client and
-// server can't drift on defaults/fallback behavior for a hand-edited or
-// stale query string.
+// This owns the URL as the source of truth for page, sort, status, and q.
+// Nothing else in this codebase writes to the URL — app/login/login-form.tsx only ever reads callbackUrl once.
+//
+// This reuses ticketListQuerySchema, the same schema GET /api/tickets validates with, to parse searchParams.
+// So the client and server cannot drift on defaults or fallback behavior for a hand-edited or stale query string.
 export function TicketsView() {
   const router = useRouter();
   const pathname = usePathname();
@@ -52,32 +51,31 @@ export function TicketsView() {
     params.set("page", String(merged.page));
     params.set("sortBy", merged.sortBy);
     params.set("sortDir", merged.sortDir);
-    // status/q are omitted from the URL entirely at their "no filter"
-    // default ("ALL" / "") rather than written out explicitly — keeps a
-    // plain unfiltered /tickets URL clean, and means the schema's own
-    // defaults (models/ticket.model.ts) are the only place "no filter"
-    // is spelled out.
+    // status and q are left out of the URL entirely at their "no filter" default ("ALL" or ""), instead of written out explicitly.
+    // That keeps a plain unfiltered /tickets URL clean.
+    // It also means the schema's own defaults (models/ticket.model.ts) are the only place "no filter" is spelled out.
     if (merged.status === "ALL") params.delete("status");
     else params.set("status", merged.status);
     if (merged.q) params.set("q", merged.q);
     else params.delete("q");
 
-    // replace, not push — same reasoning as login-form.tsx's use of
-    // replace: paging/sorting/filtering through a list shouldn't fill
-    // browser history with one entry per interaction. scroll: false so it
-    // doesn't jerk the viewport to the top of a scrolled table.
+    // This uses replace, not push, the same reasoning as login-form.tsx's use of replace.
+    // Paging, sorting, or filtering through a list should not fill browser history with one entry per interaction.
+    //
+    // scroll: false stops the viewport from jerking to the top of a scrolled table.
     router.replace(`${pathname}?${params.toString()}`, { scroll: false });
   }
 
-  // Local echo of the search box — typing has to feel instant even though
-  // the URL/API call it drives is debounced. Re-synced from `q` whenever it
-  // changes (not just seeded once) so browser back/forward or a pasted link
-  // with a different `q` correctly overwrites whatever's mid-type; harmless
-  // when it's this component's own debounced commit echoing back, since the
-  // two values already match by then. "Adjusting state during render" (React's
-  // own recommended pattern for this — https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes)
-  // rather than a useEffect mirroring `q` into state, which the project's
-  // react-hooks/set-state-in-effect lint rule flags as an error.
+  // This is a local echo of the search box.
+  // Typing has to feel instant, even though the URL and API call it drives is debounced.
+  //
+  // This re-syncs from `q` whenever `q` changes, not just once at seed time.
+  // So browser back/forward, or a pasted link with a different `q`, correctly overwrites whatever is mid-type.
+  // That is harmless when it is actually this component's own debounced commit echoing back, since the two values already match by then.
+  //
+  // This uses "adjusting state during render", React's own recommended pattern for this.
+  // See https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes
+  // A useEffect mirroring `q` into state would work too, but this project's react-hooks/set-state-in-effect lint rule flags that as an error.
   const [searchInput, setSearchInput] = useState(q);
   const [syncedQ, setSyncedQ] = useState(q);
   if (q !== syncedQ) {
@@ -85,15 +83,13 @@ export function TicketsView() {
     setSearchInput(q);
   }
 
-  // Bulk-select state for the admin-only assign toolbar (below) — keyed by
-  // ticket id (see use-tickets-table.tsx's getRowId), not row index.
-  // Page/filter-scoped by design (confirmed with the user over persisting
-  // selection across pages): reset via the same "adjust state during
-  // render" pattern as searchInput/syncedQ above — not a useEffect, which
-  // would mean calling setRowSelection from inside an effect (flagged by
-  // this project's react-hooks/set-state-in-effect lint rule) and would
-  // also miss resets triggered by browser back/forward, which don't run
-  // updateParams at all.
+  // This is the bulk-select state for the admin-only assign toolbar below.
+  // It is keyed by ticket id (see use-tickets-table.tsx's getRowId), not row index.
+  //
+  // It is page/filter-scoped by design, confirmed with the user over persisting selection across pages.
+  // It resets through the same "adjust state during render" pattern as searchInput and syncedQ above, not a useEffect.
+  // A useEffect here would call setRowSelection from inside an effect, which this project's react-hooks/set-state-in-effect lint rule flags as an error.
+  // It would also miss resets triggered by browser back/forward, which do not run updateParams at all.
   const paramsKey = `${page}|${sortBy}|${sortDir}|${status}|${q}`;
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [syncedParamsKey, setSyncedParamsKey] = useState(paramsKey);
@@ -105,10 +101,9 @@ export function TicketsView() {
   const debouncedSearch = useDebouncedValue(searchInput, SEARCH_DEBOUNCE_MS);
   useEffect(() => {
     if (debouncedSearch !== q) updateParams({ q: debouncedSearch, page: 1 });
-    // Only the debounced value should retrigger this — updateParams/q are
-    // read fresh from the current render's closure each time it actually
-    // fires, and the `!==` guard makes any extra re-run from an unrelated
-    // render a no-op rather than a redundant navigation.
+    // Only the debounced value should retrigger this.
+    // updateParams and q are read fresh from the current render's closure each time it actually fires.
+    // The `!==` guard turns any extra re-run from an unrelated render into a no-op, not a redundant navigation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedSearch]);
 
@@ -116,17 +111,16 @@ export function TicketsView() {
 
   const { user } = useCurrentUser();
   const isAdmin = user?.role === Role.ADMIN;
-  // Only fetched for admins — see hooks/use-users.ts's `enabled` param
-  // comment; agents never render anything that needs this list.
+  // This fetches only for admins. See hooks/use-users.ts's `enabled` param comment.
+  // Agents never render anything that needs this list.
   const { users: agents } = useUsers({ enabled: isAdmin });
 
   const syncGmail = useSyncGmail();
 
   const bulkAssign = useBulkAssignTickets();
-  // Which single ticket's assign mutation is in flight, for the per-row
-  // "Assigning…" state — bulkAssign.isPending alone can't distinguish a
-  // one-row assign from a many-row one, since both go through the same
-  // mutation (see hooks/use-bulk-assign-tickets.ts's comment on why).
+  // This tracks which single ticket's assign mutation is in flight, for the per-row "Assigning…" state.
+  // bulkAssign.isPending alone cannot tell a one-row assign from a many-row one, since both go through the same mutation.
+  // See hooks/use-bulk-assign-tickets.ts's comment for why.
   const [assigningId, setAssigningId] = useState<string | null>(null);
 
   function handleAssignOne(ticketId: string, assignedToId: string | null) {
@@ -150,8 +144,8 @@ export function TicketsView() {
     page,
     sortBy,
     sortDir,
-    // Sorting a new/different column always jumps back to page 1 — the
-    // page the user was on may not even exist under the new order.
+    // Sorting a new or different column always jumps back to page 1.
+    // The page the user was on may not even exist under the new order.
     onSortChange: (field, dir) => updateParams({ sortBy: field, sortDir: dir, page: 1 }),
     onPageChange: (nextPage) => updateParams({ page: nextPage }),
     canAssign: isAdmin,
@@ -188,9 +182,9 @@ export function TicketsView() {
           <option value="RESOLVED">Resolved</option>
           <option value="CLOSED">Closed</option>
         </select>
-        {/* Manual stand-in for a fast cron cadence — mailbox-wide, so it can
-            create/update tickets other than whatever's on this page, not
-            just refresh the current filter. See hooks/use-sync-gmail.ts. */}
+        {/* This is a manual stand-in for a fast cron cadence. It is mailbox-wide,
+            so it can create or update tickets other than whatever is on this
+            page, not just refresh the current filter. See hooks/use-sync-gmail.ts. */}
         <Button
           variant="outline"
           size="sm"
@@ -206,9 +200,9 @@ export function TicketsView() {
         )}
       </div>
 
-      {/* Admin-only bulk assign toolbar — only shown once at least one
-          (necessarily OPEN, per enableRowSelection in use-tickets-table.tsx)
-          row is checked. */}
+      {/* This is the admin-only bulk assign toolbar. It shows once at least one
+          row is checked — that row is necessarily OPEN, per enableRowSelection
+          in use-tickets-table.tsx. */}
       {isAdmin && selectedCount > 0 && (
         <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm">
           <span className="text-muted-foreground">
@@ -252,10 +246,10 @@ export function TicketsView() {
           ) : (
             <TicketsTable table={table} />
           )}
-          {/* Kept visible even when this specific page is empty (page
-              beyond the last one — see ticketListQuerySchema's comment on
-              why that's not clamped server-side) so Previous stays
-              reachable instead of stranding the user on a dead page. */}
+          {/* This stays visible even when this specific page is empty — a page
+              beyond the last one. See ticketListQuerySchema's comment for why
+              that is not clamped server-side. This keeps Previous reachable
+              instead of stranding the user on a dead page. */}
           {total > 0 && <TicketsPagination table={table} total={total} />}
         </>
       )}

@@ -1,15 +1,21 @@
-// Plain-text bodies for the two automated, SYSTEM-authored emails sent from
-// app/api/tickets/[id]/route.ts's PATCH handler when an agent marks a
-// ticket Resolved or Closed. Kept as small named builders (not inline
-// strings at the call site) so the copy has one home and is reusable from
-// tests later. Both are sent via the same lib/gmail.ts sendGmailReply() the
-// agent-authored reply route already uses — see that route's comment for
+// Plain-text bodies for the two automated, SYSTEM-authored emails.
+// app/api/tickets/[id]/route.ts's PATCH handler sends these when an
+// agent marks a ticket Resolved or Closed.
+//
+// Each body is a small named builder function, not an inline string at
+// the call site. That keeps the copy in one place and reusable from
+// tests later.
+//
+// Both go out through the same lib/gmail.ts sendGmailReply() that the
+// agent-authored reply route already uses. See that route's comment for
 // the threading (`inReplyTo`) pattern these follow.
 
-// Sent once, at Close time. Deliberately does NOT get resent on a later
-// reply to the same closed thread — lib/gmail.ts's processMessage() ignores
-// inbound mail on a CLOSED ticket entirely, silently, rather than bouncing
-// this same notice again on every follow-up reply.
+// Sent once, at Close time.
+//
+// This deliberately does not resend on a later reply to the same closed
+// thread. lib/gmail.ts's processMessage() silently ignores inbound mail
+// on a CLOSED ticket. It does not bounce this same notice on every
+// follow-up reply.
 export function buildClosedEmailBody(): string {
   return [
     "This ticket has been closed.",
@@ -18,9 +24,11 @@ export function buildClosedEmailBody(): string {
   ].join("\n");
 }
 
-// Sent once, at Resolve time. The "replying reopens this" line is a real
-// promise, not just copy — lib/gmail.ts's processMessage() actually does
-// reopen a RESOLVED ticket back to OPEN on the next inbound reply.
+// Sent once, at Resolve time.
+//
+// The "replying reopens this" line is a real promise, not just copy.
+// lib/gmail.ts's processMessage() does reopen a RESOLVED ticket back to
+// OPEN on the next inbound reply.
 export function buildResolvedEmailBody(): string {
   return [
     "This ticket has been marked resolved.",

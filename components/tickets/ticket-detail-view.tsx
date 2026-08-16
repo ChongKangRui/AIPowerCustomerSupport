@@ -27,22 +27,20 @@ import { useCurrentUser } from "@/hooks/use-current-user";
 import { useUsers } from "@/hooks/use-users";
 import { Role, TicketStatus } from "@/lib/generated/prisma/enums";
 
-// Owns the ticket query and page-level orchestration (which sections show,
-// in what order) for app/(main)/tickets/[id]/page.tsx. The header
-// (subject/status/customer summary) and the conversation thread are their
-// own components — ticket-detail-header.tsx, ticket-conversation.tsx — so
-// this one's job is fetching the ticket and deciding what to render, not
-// also owning their markup. Reply box + Mark Resolved/Close actions stay
-// here for now (see app/api/tickets/[id]/route.ts's ALLOWED_TRANSITIONS for
-// the rules the latter mirrors client-side, just to decide which buttons to
-// show — the API route is still the actual enforcement). The reply box
-// sends a real outbound email via useSendTicketReply
-// (app/api/tickets/[id]/reply/route.ts, threaded through
-// lib/gmail.ts's sendGmailReply()). Same pattern
-// for the assign control rendered in the header: this component owns
-// useAssignTicket + the isAdmin/agents it needs, the header just renders
-// what it's handed (see app/api/tickets/[id]/assign/route.ts for the
-// actual admin-only/OPEN-only enforcement).
+// This owns the ticket query and page-level orchestration for app/(main)/tickets/[id]/page.tsx.
+// It decides which sections show, and in what order.
+//
+// The header (subject, status, customer summary) and the conversation thread are their own components: ticket-detail-header.tsx and ticket-conversation.tsx.
+// So this component's job is fetching the ticket and deciding what to render, not also owning their markup.
+//
+// The reply box and Mark Resolved/Close actions stay here for now.
+// See app/api/tickets/[id]/route.ts's ALLOWED_TRANSITIONS for the rules the latter mirrors client-side, just to decide which buttons to show.
+// The API route is still the actual enforcement.
+// The reply box sends a real outbound email through useSendTicketReply (app/api/tickets/[id]/reply/route.ts, threaded through lib/gmail.ts's sendGmailReply()).
+//
+// The assign control rendered in the header follows the same pattern.
+// This component owns useAssignTicket and the isAdmin/agents it needs. The header just renders what it is handed.
+// See app/api/tickets/[id]/assign/route.ts for the actual admin-only, OPEN-only enforcement.
 export function TicketDetailView({ ticketId }: { ticketId: string }) {
   const { data: ticket, isLoading, isError } = useTicket(ticketId);
   const updateStatus = useUpdateTicketStatus(ticketId);
@@ -50,9 +48,8 @@ export function TicketDetailView({ ticketId }: { ticketId: string }) {
   const assignTicket = useAssignTicket(ticketId);
   const { user } = useCurrentUser();
   const isAdmin = user?.role === Role.ADMIN;
-  // Only an Admin ever renders the assign control (see
-  // TicketDetailHeader), so agents skip this fetch entirely — see
-  // hooks/use-users.ts's `enabled` param comment.
+  // Only an Admin ever renders the assign control (see TicketDetailHeader), so agents skip this fetch entirely.
+  // See hooks/use-users.ts's `enabled` param comment.
   const { users: agents } = useUsers({ enabled: isAdmin });
   const [closeDialogOpen, setCloseDialogOpen] = useState(false);
   const [resolveDialogOpen, setResolveDialogOpen] = useState(false);
@@ -73,10 +70,8 @@ export function TicketDetailView({ ticketId }: { ticketId: string }) {
     if (!nextOpen) updateStatus.reset();
   }
 
-  // Same preventDefault-then-manual-close pattern as
-  // components/users/delete-user-dialog.tsx's handleDelete — AlertDialogAction
-  // auto-closes on click otherwise, before the mutation (and its possible
-  // error) has a chance to resolve.
+  // This uses the same preventDefault-then-manual-close pattern as components/users/delete-user-dialog.tsx's handleDelete.
+  // AlertDialogAction auto-closes on click otherwise, before the mutation — and its possible error — has a chance to resolve.
   function handleClose(event: React.MouseEvent<HTMLButtonElement>) {
     event.preventDefault();
     updateStatus.mutate("CLOSED", { onSuccess: () => setCloseDialogOpen(false) });
@@ -88,11 +83,10 @@ export function TicketDetailView({ ticketId }: { ticketId: string }) {
   }
 
   return (
-    // Centered, chat-width column (not full-bleed) — a conversation thread
-    // stretched edge-to-edge on a wide screen is hard to read. Generous
-    // gap-10 between the header/conversation/actions sections, separated by
-    // Separator, gives each its own visual block instead of the previous
-    // flat gap-6 stack.
+    // This is a centered, chat-width column, not full-bleed.
+    // A conversation thread stretched edge-to-edge on a wide screen is hard to read.
+    //
+    // The generous gap-10 between the header, conversation, and actions sections, separated by Separator, gives each its own visual block, instead of the previous flat gap-6 stack.
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-10">
       <TicketDetailHeader
         ticket={ticket}

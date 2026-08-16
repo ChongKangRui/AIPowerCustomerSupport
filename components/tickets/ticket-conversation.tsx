@@ -3,11 +3,11 @@ import { cn } from "@/lib/utils";
 import type { TicketMessageItem } from "@/models/ticket-message.model";
 import type { TicketDetail } from "@/models/ticket.model";
 
-// Same dateStyle/timeStyle pairing as use-tickets-table.tsx's dateFormatter
-// (recency down to the hour/minute matters for tickets) — not imported from
-// there since that module doesn't export it, and a `new
-// Intl.DateTimeFormat(...)` call is cheap enough not to bother threading it
-// through as a shared export for one extra caller.
+// This uses the same dateStyle/timeStyle pairing as use-tickets-table.tsx's dateFormatter.
+// Recency down to the hour and minute matters for tickets.
+//
+// This does not import that formatter, since that module does not export it.
+// A `new Intl.DateTimeFormat(...)` call is cheap enough that threading it through as a shared export for one extra caller is not worth it.
 const dateFormatter = new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" });
 
 function authorLabel(message: TicketMessageItem, customerName: string | null, customerEmail: string) {
@@ -23,10 +23,8 @@ function authorLabel(message: TicketMessageItem, customerName: string | null, cu
   }
 }
 
-// Conversation-thread section of the ticket detail page — split out of
-// ticket-detail-view.tsx so message-rendering concerns (author labels,
-// direction-based styling, timestamps) live in their own component instead
-// of alongside that component's data-fetching/status-action orchestration.
+// This is the conversation-thread section of the ticket detail page.
+// It is split out of ticket-detail-view.tsx, so message-rendering concerns — author labels, direction-based styling, timestamps — live in their own component, instead of alongside that component's data-fetching and status-action orchestration.
 export function TicketConversation({ ticket }: { ticket: TicketDetail }) {
   return (
     <div className="flex flex-col gap-4">

@@ -13,13 +13,12 @@ import { destroyAllUserSessions } from "@/lib/session";
 import { Role } from "@/lib/generated/prisma/enums";
 import { updateUserSchema } from "@/models/user.model";
 
-// PATCH /api/users/[id] — admin-only. Edits name/email, and password only if
-// a non-empty one is provided (see models/user.model.ts's updateUserSchema —
-// an empty string means "leave it unchanged"). Role is NOT editable here —
-// see implementation-plan.md, that's a separate future action. Same auth
-// check as GET/POST in ../route.ts: this route is its own entry point and
-// must be authoritative on its own, independent of the page-level guard in
-// app/(main)/users/page.tsx.
+// PATCH /api/users/[id] is admin-only.
+// It edits name and email, and edits password only if a non-empty one is provided.
+// See models/user.model.ts's updateUserSchema, where an empty string means "leave it unchanged".
+// role is not editable here. See implementation-plan.md — that is a separate future action.
+//
+// This has the same auth check as GET/POST in ../route.ts. This route is its own entry point and must be authoritative on its own, independent of the page-level guard in app/(main)/users/page.tsx.
 export const PATCH = withApiHandler<{ params: Promise<{ id: string }> }>(
   async (request, context, log, session) => {
     if (!session?.user) throw new UnauthorizedError();
@@ -31,8 +30,7 @@ export const PATCH = withApiHandler<{ params: Promise<{ id: string }> }>(
     const existing = await prisma.user.findUnique({ where: { id } });
     if (!existing) throw new NotFoundError("User not found");
 
-    // Excludes this user's own row, so saving with an unchanged email never
-    // falsely 409s against itself.
+    // This excludes this user's own row, so saving with an unchanged email never falsely returns a 409 error against itself.
     const emailTaken = await prisma.user.findFirst({ where: { email, NOT: { id } } });
     if (emailTaken) throw new ConflictError("A user with this email already exists");
 
@@ -49,11 +47,12 @@ export const PATCH = withApiHandler<{ params: Promise<{ id: string }> }>(
   }
 );
 
-// DELETE /api/users/[id] — admin-only. Soft-deletes: sets deletedAt rather
-// than removing the row, so historical Ticket/TicketMessage references
-// (assignedTo/author) keep resolving — see schema.prisma's User model.
-// Admins can never be deleted (403). Force-invalidates the target's active
-// sessions immediately rather than waiting for their cookie to expire.
+// DELETE /api/users/[id] is admin-only.
+// It soft-deletes: it sets deletedAt rather than removing the row, so historical Ticket and TicketMessage references (assignedTo, author) keep resolving.
+// See schema.prisma's User model.
+//
+// Admins can never be deleted — this returns a 403 error instead.
+// This force-invalidates the target's active sessions immediately, instead of waiting for their cookie to expire.
 export const DELETE = withApiHandler<{ params: Promise<{ id: string }> }>(
   async (_request, context, log, session) => {
     if (!session?.user) throw new UnauthorizedError();
@@ -61,7 +60,7 @@ export const DELETE = withApiHandler<{ params: Promise<{ id: string }> }>(
 
     const { id } = await context.params;
 
-    // "Already deleted" is treated the same as "never existed" — both 404.
+    // "Already deleted" is treated the same as "never existed". Both return a 404 error.
     const target = await prisma.user.findUnique({ where: { id } });
     if (!target || target.deletedAt) throw new NotFoundError("User not found");
     if (target.role === Role.ADMIN) {

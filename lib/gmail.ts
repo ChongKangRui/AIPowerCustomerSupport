@@ -12,12 +12,13 @@ import { MessageAuthorType, MessageDirection, TicketStatus } from "@/lib/generat
 // Client
 // ---------------------------------------------------------------------------
 
-// Refresh-token flow only (no interactive consent screen at runtime — that
-// already happened once, manually, via the OAuth Playground per
-// implementation-plan.md), so no redirect URI is needed here. A plain
-// module-level singleton is fine, unlike lib/prisma.ts's globalThis dance —
-// this wraps an HTTP client, not a pooled DB connection, so there's nothing
-// to leak across Next.js dev hot-reloads.
+// This uses the refresh-token flow, so it needs no redirect URI here.
+// The interactive consent screen ran only once, by hand, through the
+// OAuth Playground (see implementation-plan.md).
+//
+// A plain module-level singleton works fine here, unlike lib/prisma.ts's
+// globalThis dance. This wraps an HTTP client, not a pooled DB
+// connection, so nothing leaks across Next.js dev hot-reloads.
 function createGmailClient(): gmail_v1.Gmail {
   const oauth2Client = new google.auth.OAuth2(
     process.env.GMAIL_CLIENT_ID,
@@ -30,7 +31,7 @@ function createGmailClient(): gmail_v1.Gmail {
 export const gmail = createGmailClient();
 
 // ---------------------------------------------------------------------------
-// EmailSyncState — stored `historyId` watermark (single row, id "gmail")
+// EmailSyncState: stores the `historyId` watermark in a single row with id "gmail"
 // ---------------------------------------------------------------------------
 
 async function getLastHistoryId(): Promise<string | null> {
@@ -47,9 +48,10 @@ async function updateLastHistoryId(historyId: string): Promise<void> {
 }
 
 /**
- * One-time (idempotent) sync starting point. Establishes "everything from
- * now on" rather than resyncing the whole mailbox history — safe to call on
- * every poll-script run, only does work the first time.
+ * One-time, idempotent sync starting point. Sets the watermark to
+ * "everything from now on" instead of resyncing the whole mailbox
+ * history. Safe to call on every poll-script run. It does real work
+ * only the first time.
  */
 export async function bootstrapHistoryId(): Promise<string> {
   const existing = await getLastHistoryId();
@@ -80,7 +82,7 @@ export type ParsedGmailMessage = {
   bodyText: string;
   rfcMessageId: string | null;
   inReplyTo: string | null;
-  /** Sent by the demo inbox itself (our own outbound mail), not a customer. */
+  /** True when the demo inbox itself sent this message (our own outbound mail), not a customer. */
   isSelfSent: boolean;
 };
 
@@ -99,7 +101,7 @@ function parseFromHeader(raw: string): { email: string; name: string | null } {
   return { email: raw.trim().toLowerCase(), name: null };
 }
 
-/** Recursively collects every part's decoded body text matching `mimeType`. */
+/** Walks the MIME tree and collects every part's decoded body text matching `mimeType`. */
 function collectPartsByMimeType(
   part: gmail_v1.Schema$MessagePart | undefined,
   mimeType: string
@@ -115,9 +117,12 @@ function collectPartsByMimeType(
   return results;
 }
 
-// Prefers text/plain; falls back to raw text/html markup if no plain part
-// exists anywhere in the MIME tree. Storing raw HTML is a known limitation
-// for now (fine for this slice — worth revisiting once AI reads bodies).
+// Prefers text/plain. If the MIME tree has no plain part anywhere, this
+// falls back to the raw text/html markup instead.
+//
+// Storing raw HTML like that is a known limitation for now. It is fine
+// for this slice, but worth a second look once AI starts reading these
+// bodies.
 function extractBodyText(payload: gmail_v1.Schema$MessagePart | undefined): string {
   const plainParts = collectPartsByMimeType(payload, "text/plain");
   if (plainParts.length > 0) return plainParts.join("\n").trim();
@@ -126,39 +131,23 @@ function extractBodyText(payload: gmail_v1.Schema$MessagePart | undefined): stri
   return htmlParts.join("\n").trim();
 }
 
-// A reply from an email client (Gmail, Outlook, Apple Mail, ...) doesn't
-// contain just the new text — the client auto-appends everything it's
-// replying to underneath, quoted. Left unstripped, that means every
-// TicketMessage body from here on would re-embed the *entire* prior
-// conversation, growing without bound (and, concretely, the reopen-on-reply
-// flow in processMessage() below would show our own "ticket marked
-// resolved" email quoted back inside the customer's own reply). This is a
-// best-effort heuristic, not a full parser — good enough for the common
-// clients, not guaranteed for every possible mail client's quoting style:
+// Email clients do not send just the new text in a reply. They
+// auto-append everything being replied to underneath, quoted. This
+// function strips that quoted history back out. Left unstripped, every
+// TicketMessage from here on would re-embed the entire prior
+// conversation and grow without bound.
 //
-// 1. Outlook's plain-text quoting has no "> " prefix at all, just a literal
-//    "-----Original Message-----" marker line — cut there if found.
-// 2. Everyone else (Gmail, Apple Mail, Yahoo, ...) prefixes each quoted
-//    line with "> ", preceded by a *blank* line and then one localized
-//    header line ("On ... wrote:", "... 写道：", "... a écrit :"). Rather
-//    than enumerate every language, this keys off what they all share: it's
-//    the nearest non-blank line above the first "> " line, and it ends in a
-//    colon (ASCII or full-width).
-// 3. Gmail can also ship a reply with its quoted-history expander left
-//    collapsed — the header line makes it into the plain-text body with no
-//    "> " block under it at all (this is what a live test against the demo
-//    inbox surfaced: a reply body of just "ok" followed by the bare "<addr>
-//    ... wrote:" line, nothing quoted after it). Same colon check, just
-//    anchored at the end of the message instead of at a quote block.
-// Falls back to the untouched body if none of this is found, or if
-// stripping would leave nothing behind (a reply that's 100% quote with no
-// header line we can identify) — never return an empty message body.
-// Exported for lib/gmail.test.ts — pure string-in/string-out logic, no
-// Gmail API or DB involved, so it's unit-testable directly rather than only
-// indirectly through parseGmailMessage().
+// This is a best-effort heuristic, not a full parser. It works well
+// enough for common clients but is not guaranteed for every mail
+// client's quoting style.
+// Exported for lib/gmail.test.ts, since it is pure string-in/string-out
+// logic with no Gmail API or DB call involved.
 export function stripQuotedReply(bodyText: string): string {
   const lines = bodyText.split(/\r\n|\r|\n/);
 
+  // Case 1: Outlook. Its plain-text quoting has no "> " prefix at all.
+  // It uses a literal "-----Original Message-----" marker line instead.
+  // Cut there if this function finds that line.
   const originalMessageIndex = lines.findIndex((line) =>
     /^-{2,}\s*original message\s*-{2,}$/i.test(line.trim())
   );
@@ -166,17 +155,33 @@ export function stripQuotedReply(bodyText: string): string {
     return lines.slice(0, originalMessageIndex).join("\n").trim() || bodyText.trim();
   }
 
+  // Case 2: everyone else (Gmail, Apple Mail, Yahoo, and more). Each
+  // quoted line starts with "> ". A blank line and one localized header
+  // line come before it ("On ... wrote:", "... 写道：", "... a écrit :").
+  // Rather than list every language, this code keys off what they all
+  // share: the header line is the nearest non-blank line above the first
+  // "> " line, and it ends in a colon (ASCII or full-width).
   const firstQuoteIndex = lines.findIndex((line) => line.trim().startsWith(">"));
-  // Search for a colon-terminated header line backward from the first "> "
-  // line, or — if there's no quote block at all — from the very end of the
-  // message, skipping any blank lines in between (Gmail's plain-text output
-  // always puts at least one blank line between the header and what
-  // follows it).
+
+  // Case 3: Gmail can ship a reply with its quoted-history expander left
+  // collapsed. Then the header line lands in the plain-text body with no
+  // "> " block under it. (A live test against the demo inbox surfaced
+  // this: a reply body of just "ok", followed by the bare
+  // "<addr> ... wrote:" line, with nothing quoted after it.) This uses
+  // the same colon check as case 2, anchored at the end of the message
+  // instead of at a quote block. `searchFrom` below does that anchoring
+  // when there is no quote block.
   const searchFrom = firstQuoteIndex === -1 ? lines.length : firstQuoteIndex;
+  // Skips any blank lines along the way. Gmail's plain-text output
+  // always puts at least one blank line between the header and what
+  // follows it.
   let headerIndex = searchFrom - 1;
   while (headerIndex >= 0 && lines[headerIndex].trim() === "") headerIndex--;
   const isHeaderLine = headerIndex >= 0 && /[:：]$/.test(lines[headerIndex].trim());
 
+  // Falls back to the untouched body if none of the cases above matched,
+  // or if stripping would leave nothing behind. This function never
+  // returns an empty message body.
   let cutoff: number;
   if (isHeaderLine) {
     cutoff = headerIndex;
@@ -217,11 +222,11 @@ export type PollStats = {
   ticketsCreated: number;
   messagesAppended: number;
   skippedSelfSent: number;
-  /** History referenced a message that's since gone (deleted, Chat label, etc). */
+  /** The history referenced a message that is now gone (deleted, Chat label, etc). */
   skippedNotFound: number;
-  /** Customer replied to a RESOLVED ticket — reopened to OPEN (see project-scope.md). */
+  /** A customer replied to a RESOLVED ticket. The ticket reopened to OPEN (see project-scope.md). */
   ticketsReopened: number;
-  /** Customer replied to a CLOSED ticket — dropped silently, no ticket/message/email. */
+  /** A customer replied to a CLOSED ticket. The reply was dropped silently: no ticket, message, or email. */
   ignoredClosedReplies: number;
 };
 
@@ -229,17 +234,18 @@ function isUniqueConstraintError(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
 }
 
-// Gaxios errors from googleapis carry a numeric `code` (and mirror it on
-// `.response.status`) rather than being a typed class we can `instanceof`.
+// Gaxios errors from googleapis are not a typed class we can check with
+// `instanceof`. They carry a numeric `code` instead, mirrored on
+// `.response.status`.
 function isNotFoundError(error: unknown): boolean {
   const code = (error as { code?: unknown } | null)?.code;
   return code === 404 || code === "404";
 }
 
 async function processMessage(messageId: string, stats: PollStats): Promise<void> {
-  // Idempotency check first — before even calling messages.get, so a
-  // re-poll over an overlapping history window doesn't cost an extra Gmail
-  // API call for messages already stored.
+  // Checks for idempotency first, before it even calls messages.get. A
+  // re-poll over an overlapping history window then costs no extra
+  // Gmail API call for messages already stored.
   const already = await prisma.ticketMessage.findUnique({ where: { gmailMessageId: messageId } });
   if (already) return;
 
@@ -252,12 +258,15 @@ async function processMessage(messageId: string, stats: PollStats): Promise<void
     });
     message = response.data;
   } catch (error) {
-    // history.list can reference a messageAdded event for a message that's
-    // no longer fetchable by the time we get to it — e.g. auto-deleted
-    // spam, or Google Chat's own entries which also flow through Gmail's
-    // history stream but 404 on users.messages.get. Permanently
-    // unrecoverable (retrying won't help), so skip it and keep the batch
-    // going rather than aborting the whole poll over one gone message.
+    // history.list can reference a messageAdded event for a message
+    // that is no longer fetchable by the time this code reaches it.
+    // Examples: auto-deleted spam, or Google Chat entries, which also
+    // flow through Gmail's history stream but 404 on
+    // users.messages.get.
+    //
+    // Retrying will not fix this — it is permanently unrecoverable. Skip
+    // it and keep the batch going, instead of aborting the whole poll
+    // over one gone message.
     if (isNotFoundError(error)) {
       stats.skippedNotFound++;
       logger.warn({ messageId }, "Gmail message from history not found, skipped");
@@ -280,13 +289,14 @@ async function processMessage(messageId: string, stats: PollStats): Promise<void
     });
 
     if (existingTicket && existingTicket.status === TicketStatus.CLOSED) {
-      // Closed is terminal (project-scope.md) — and the agent's Close
-      // action already emailed the customer up front that replies aren't
-      // monitored (see lib/ticket-lifecycle-emails.ts's buildClosedEmailBody
-      // and app/api/tickets/[id]/route.ts). Sending a fresh "still closed"
-      // bounce on every subsequent reply would just repeat that same
-      // notice, so a later reply on a closed thread is simply dropped: no
-      // TicketMessage, no ticket touched, no email.
+      // Closed is terminal (see project-scope.md). The agent's Close
+      // action already emailed the customer up front that replies are
+      // not monitored (see buildClosedEmailBody in
+      // lib/ticket-lifecycle-emails.ts and app/api/tickets/[id]/route.ts).
+      //
+      // A fresh "still closed" bounce on every later reply would just
+      // repeat that same notice. So this code drops a later reply on a
+      // closed thread: no TicketMessage, no ticket update, no email.
       stats.ignoredClosedReplies++;
       logger.info(
         { threadId: parsed.threadId, ticketId: existingTicket.id },
@@ -307,12 +317,15 @@ async function processMessage(messageId: string, stats: PollStats): Promise<void
       });
 
       if (isReopen) {
-        // Customer replied to a RESOLVED ticket — reopen to OPEN per
-        // project-scope.md, atomically with appending their message.
-        // Leaves assignedToId/resolvedAt untouched: no round-robin/
-        // notification system exists yet (Phase 4/5), so keeping the
-        // previous assignee is the lightest "route to a human" available
-        // now — it just shows back up as OPEN in their queue.
+        // The customer replied to a RESOLVED ticket. This reopens it to
+        // OPEN (per project-scope.md), in the same transaction as
+        // appending their message.
+        //
+        // This leaves assignedToId and resolvedAt untouched. No
+        // round-robin or notification system exists yet (that is Phase
+        // 4/5). Keeping the previous assignee is the lightest "route to
+        // a human" available right now. The ticket just shows back up
+        // as OPEN in their queue.
         await prisma.$transaction([
           messageCreate,
           prisma.ticket.update({
@@ -351,12 +364,14 @@ async function processMessage(messageId: string, stats: PollStats): Promise<void
       stats.ticketsCreated++;
     }
   } catch (error) {
-    // Backstop for a genuine race between the check above and this insert
-    // (two overlapping polls both seeing "not yet processed"/"no ticket
-    // yet" for the same thread) — only matters once concurrent cron
-    // invocations exist, costs nothing to guard against now. gmailThreadId
-    // (Ticket) and gmailMessageId (TicketMessage) are both @unique, so one
-    // writer wins and the other lands here safely.
+    // This is a backstop for a real race between the check above and
+    // this insert. Two overlapping polls could both see "not yet
+    // processed" or "no ticket yet" for the same thread. This only
+    // matters once concurrent cron invocations exist, but costs nothing
+    // to guard against now.
+    //
+    // gmailThreadId (Ticket) and gmailMessageId (TicketMessage) are both
+    // @unique. One writer wins, and the other lands here safely.
     if (isUniqueConstraintError(error)) {
       logger.warn(
         { messageId, threadId: parsed.threadId },
@@ -369,10 +384,10 @@ async function processMessage(messageId: string, stats: PollStats): Promise<void
 }
 
 /**
- * Syncs new inbound mail since the last stored historyId into Ticket /
- * TicketMessage rows. Requires bootstrapHistoryId() to have run at least
- * once — this never bootstraps itself, so a missing watermark is a real
- * error rather than a silent full-mailbox resync.
+ * Syncs new inbound mail since the last stored historyId into Ticket and
+ * TicketMessage rows. Requires bootstrapHistoryId() to have run at
+ * least once. This function never bootstraps itself, so a missing
+ * watermark is a real error, not a silent full-mailbox resync.
  */
 export async function pollGmailAndCreateTickets(): Promise<PollStats> {
   const startHistoryId = await getLastHistoryId();
@@ -417,10 +432,10 @@ export async function pollGmailAndCreateTickets(): Promise<PollStats> {
     pageToken = response.data.nextPageToken ?? undefined;
   } while (pageToken);
 
-  // Only advance the watermark once everything above succeeded — if this
-  // poll throws partway through, the next run safely re-covers the same
-  // window (already-stored messages are cheap no-ops via the idempotency
-  // check in processMessage).
+  // Advances the watermark only after everything above succeeds. If
+  // this poll throws partway through, the next run safely re-covers the
+  // same window. Already-stored messages are cheap no-ops, through the
+  // idempotency check in processMessage().
   await updateLastHistoryId(latestHistoryId);
 
   logger.info({ ...stats, latestHistoryId }, "Gmail poll complete");
@@ -428,15 +443,19 @@ export async function pollGmailAndCreateTickets(): Promise<PollStats> {
 }
 
 // ---------------------------------------------------------------------------
-// Send — outbound replies, threaded via Gmail's own threadId plus the
-// standard In-Reply-To/References headers most clients also key threading
-// display off of.
+// Send
+//
+// Sends outbound replies, threaded through Gmail's own threadId plus the
+// standard In-Reply-To/References headers. Most mail clients also use
+// those headers to display threading.
 // ---------------------------------------------------------------------------
 
-// Pure send: takes everything it needs as arguments and hands back what the
-// caller needs to persist. No DB access here — same split as
-// parseGmailMessage (pure parse) vs processMessage (parse + DB) above; the
-// caller (app/api/tickets/[id]/reply/route.ts) is the one that reads the
+// This is a pure send. It takes everything it needs as arguments and
+// returns what the caller needs to persist. It makes no DB call here,
+// the same split as parseGmailMessage (pure parse) versus processMessage
+// (parse and DB) above.
+//
+// The caller, app/api/tickets/[id]/reply/route.ts, reads the
 // ticket/thread state beforehand and writes the resulting TicketMessage
 // afterward.
 export async function sendGmailReply({
@@ -454,9 +473,9 @@ export async function sendGmailReply({
   inReplyTo: string | null;
 }): Promise<{ gmailMessageId: string; rfcMessageId: string }> {
   const gmailUser = process.env.GMAIL_USER ?? "";
-  // Gmail's send response only hands back its own message id, not the
-  // Message-ID header value we put in — so we generate and keep track of
-  // that ourselves, same way any outbound MTA would.
+  // Gmail's send response returns only its own message id, not the
+  // Message-ID header value this code set. So this code generates and
+  // tracks that value itself, the same way any outbound MTA would.
   const domain = gmailUser.split("@")[1] ?? "localhost";
   const rfcMessageId = `<${randomUUID()}@${domain}>`;
 
@@ -467,10 +486,11 @@ export async function sendGmailReply({
     `Message-ID: ${rfcMessageId}`,
     "MIME-Version: 1.0",
     'Content-Type: text/plain; charset="UTF-8"',
-    // In-Reply-To/References are both set to just the single most recent
-    // message in the thread, not a fully accumulated chain — a known
-    // simplification for now (same spirit as extractBodyText's text/html
-    // fallback above), since TicketMessage doesn't track a References list.
+    // In-Reply-To and References both point at only the single most
+    // recent message in the thread, not a full accumulated chain. This
+    // is a known simplification for now, in the same spirit as
+    // extractBodyText's text/html fallback above, since TicketMessage
+    // does not track a References list.
     ...(inReplyTo ? [`In-Reply-To: ${inReplyTo}`, `References: ${inReplyTo}`] : []),
   ];
   const raw = `${headers.join("\r\n")}\r\n\r\n${bodyText}`;
@@ -486,14 +506,18 @@ export async function sendGmailReply({
   const gmailMessageId = response.data.id;
   if (!gmailMessageId) throw new Error("Gmail messages.send returned no message id");
 
-  // Gmail can rewrite a self-supplied Message-ID header on send (it's known
-  // to replace it if it doesn't like the format, filing the original away
-  // under X-Google-Original-Message-ID instead) — if that happens and we
-  // kept trusting the id we generated above, every later reply's
-  // In-Reply-To/References would point at a Message-ID Gmail never actually
-  // used, silently breaking threading for the rest of the conversation. So
-  // re-fetch what Gmail actually stored and use that instead, falling back
-  // to our generated id only if the header is missing for some reason.
+  // Gmail can rewrite a self-supplied Message-ID header on send. It
+  // replaces the header when it dislikes the format, and files the
+  // original away under X-Google-Original-Message-ID instead.
+  //
+  // If that happens, and this code kept trusting the id it generated
+  // above, every later reply's In-Reply-To/References would point at a
+  // Message-ID Gmail never used. That would silently break threading for
+  // the rest of the conversation.
+  //
+  // So instead, this code re-fetches what Gmail actually stored and uses
+  // that. It falls back to the generated id only if the header is
+  // missing for some reason.
   const sent = await gmail.users.messages.get({
     userId: "me",
     id: gmailMessageId,

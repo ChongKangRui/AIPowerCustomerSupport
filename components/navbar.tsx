@@ -34,58 +34,43 @@ export function Navbar() {
   const logoutMutation = useMutation({
     mutationFn: () => apiClient.post("/api/logout"),
     onSuccess: async () => {
-      // No queryKey filter — invalidates every cached query (tickets, users,
-      // session, …), not just ["session"]. Logging out only refetching
-      // session left every other query's last-known data sitting in the
-      // cache marked fresh; if the next person to use this browser logs in
-      // as someone else, any component that reads one of those queries
-      // before it happens to refetch on its own would render the previous
-      // user's data for an instant. Invalidating everything here means the
-      // next mount/access of any query always goes back to the network.
+      // This has no queryKey filter, so it invalidates every cached query — tickets, users, session, and more — not just ["session"].
+      //
+      // Refetching only session would leave every other query's last-known data sitting in the cache marked fresh.
+      // If the next person to use this browser logs in as someone else, any component that reads one of those queries before it happens to refetch on its own would render the previous user's data for an instant.
+      // Invalidating everything here means the next mount or access of any query always goes back to the network.
       await queryClient.invalidateQueries();
-      // replace, not push — mirrors app/login/login-form.tsx's own use of
-      // replace for the opposite direction. This overwrites the just-left
-      // protected page's history entry with /login instead of adding to
-      // it, so pressing Back from /login can't land the user right back on
-      // a page that now requires a session they no longer have. (No
-      // callbackUrl here, unlike the effect below — after a *deliberate*
-      // logout, landing on a bare /login is the expected, already
-      // e2e-tested behavior; see e2e/logout.spec.ts.)
+      // This uses replace, not push, mirroring app/login/login-form.tsx's own use of replace for the opposite direction.
+      // It overwrites the just-left protected page's history entry with /login instead of adding to it.
+      // So pressing Back from /login cannot land the user right back on a page that now requires a session they no longer have.
+      //
+      // This has no callbackUrl, unlike the effect below.
+      // After a deliberate logout, landing on a bare /login is the expected, already e2e-tested behavior. See e2e/logout.spec.ts.
       router.replace("/login");
     },
   });
 
-  // Two gaps this closes, mirroring the pair of effects
-  // app/login/login-form.tsx already uses for the opposite direction
-  // (redirecting *away* from /login once logged in):
+  // This closes two gaps, mirroring the pair of effects app/login/login-form.tsx already uses for the opposite direction: redirecting away from /login once logged in.
   //
-  // 1. The session went stale while this page was just sitting open —
-  //    revoked by an admin (lib/session.ts's destroyAllUserSessions),
-  //    expired, or logged out from another tab. useCurrentUser()
-  //    (hooks/use-current-user.ts) refetches on window refocus by default,
-  //    so `user` eventually flips to null here with no navigation at all —
-  //    redirect the instant that happens, rather than leaving stale/
-  //    sensitive content on screen. Navbar is mounted on every page under
-  //    app/(main)/layout.tsx, so this covers all of them from one place.
+  // Gap 1: the session went stale while this page was just sitting open.
+  // An admin may have revoked it (lib/session.ts's destroyAllUserSessions), it may have expired, or the user may have logged out from another tab.
+  // useCurrentUser() (hooks/use-current-user.ts) refetches on window refocus by default, so `user` eventually flips to null here with no navigation at all.
+  // This redirects the instant that happens, instead of leaving stale or sensitive content on screen.
+  // Navbar is mounted on every page under app/(main)/layout.tsx, so this covers all of them from one place.
   //
-  //    `!logoutMutation.isSuccess` guards against racing the mutation's own
-  //    onSuccess above: invalidating ["session"] there also flips `user` to
-  //    null, which would otherwise fire this effect too — and since
-  //    isSuccess stays true for the rest of this component's lifetime once
-  //    a deliberate logout completes, this reliably defers to that
-  //    handler's own plain (no-callbackUrl) redirect instead of racing it
-  //    with a second, callbackUrl-bearing one.
+  // `!logoutMutation.isSuccess` guards against racing the mutation's own onSuccess above.
+  // Invalidating ["session"] there also flips `user` to null, which would otherwise fire this effect too.
+  // isSuccess stays true for the rest of this component's lifetime once a deliberate logout completes.
+  // So this reliably defers to that handler's own plain, no-callbackUrl redirect, instead of racing it with a second, callbackUrl-bearing one.
   useEffect(() => {
     if (!isLoading && !user && !logoutMutation.isSuccess) {
       router.replace(`/login?callbackUrl=${encodeURIComponent(pathname)}`);
     }
   }, [isLoading, user, pathname, router, logoutMutation.isSuccess]);
 
-  // 2. True browser back/forward cache (bfcache) restore — the whole
-  //    document (including this component's JS state) was frozen, not
-  //    re-run, so effect #1 above wouldn't fire on its own. router.refresh()
-  //    forces a real request, which re-runs app/(main)/layout.tsx's
-  //    server-side auth() check against the current session.
+  // Gap 2: a true browser back/forward cache (bfcache) restore.
+  // The whole document — including this component's JS state — was frozen, not re-run, so effect #1 above would not fire on its own.
+  // router.refresh() forces a real request, which re-runs app/(main)/layout.tsx's server-side auth() check against the current session.
   useEffect(() => {
     function handlePageShow(event: PageTransitionEvent) {
       if (event.persisted) {

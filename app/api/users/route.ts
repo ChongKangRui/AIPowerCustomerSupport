@@ -6,16 +6,13 @@ import { prisma } from "@/lib/prisma";
 import { Role } from "@/lib/generated/prisma/enums";
 import { createUserSchema } from "@/models/user.model";
 
-// GET /api/users — admin-only. Returns every user for the admin "Users" page.
+// GET /api/users is admin-only. It returns every user for the admin "Users" page. It takes no query params.
 //
-// No query params. withApiHandler resolves the session once and hands it to
-// us as the 4th argument (see lib/api-handler.ts) — it doesn't enforce
-// anything itself, so this handler still does its own session + role check
-// rather than trusting the page-level guard in app/(main)/users/page.tsx —
-// this is a separate entry point and must be authoritative on its own.
+// withApiHandler resolves the session once and hands it to this handler as the 4th argument (see lib/api-handler.ts). It does not enforce anything itself.
+// So this handler still does its own session and role check, instead of trusting the page-level guard in app/(main)/users/page.tsx.
+// This is a separate entry point and must be authoritative on its own.
 //
-// Deliberately no search/role filtering here — see the comment in
-// components/users/users-view.tsx for why that's done client-side instead.
+// This deliberately has no search or role filtering. See the comment in components/users/users-view.tsx for why that is done client-side instead.
 export const GET = withApiHandler(async (_request, _context, log, session) => {
   if (!session?.user) throw new UnauthorizedError();
   if (session.user.role !== Role.ADMIN) throw new ForbiddenError();
@@ -30,11 +27,10 @@ export const GET = withApiHandler(async (_request, _context, log, session) => {
   return NextResponse.json({ users });
 });
 
-// POST /api/users — admin-only. Creates a new user (always role AGENT — see
-// implementation-plan.md; promoting to Admin is a separate "edit role"
-// action, not part of creation). Same auth check as GET: this route is its
-// own entry point and must be authoritative on its own, independent of the
-// page-level guard in app/(main)/users/page.tsx.
+// POST /api/users is admin-only. It creates a new user, always with role AGENT.
+// See implementation-plan.md. Promoting to Admin is a separate "edit role" action, not part of creation.
+//
+// This has the same auth check as GET. This route is its own entry point and must be authoritative on its own, independent of the page-level guard in app/(main)/users/page.tsx.
 export const POST = withApiHandler(async (request, _context, log, session) => {
   if (!session?.user) throw new UnauthorizedError();
   if (session.user.role !== Role.ADMIN) throw new ForbiddenError();

@@ -4,26 +4,27 @@ import { ADMIN, AGENT } from "./seeded-users";
 import { AGENT_STORAGE_STATE } from "./storage-state";
 
 // Covers proxy.ts's cookie-presence route protection, lib/safe-redirect.ts's
-// open-redirect guard (both the "redirected to /login" and "logged in, now
-// redirected" ends of that guard, exercised on both the login-form and
-// login-page call sites), and app/login/page.tsx's server-side "already have
-// a session, don't show me this page" redirect. All read-only: nothing here
-// writes ticket/user data, so it's safe to run fully in parallel with every
-// other spec.
+// open-redirect guard — both the "redirected to /login" and "logged in,
+// now redirected" ends of that guard, exercised on both the login-form
+// and login-page call sites — and app/login/page.tsx's server-side
+// "already have a session, don't show me this page" redirect.
+//
+// All read-only: nothing here writes ticket/user data, so it's safe to
+// run fully in parallel with every other spec.
 //
 // The admin-only /users page's own server-side redirect
-// (app/(main)/users/page.tsx) is NOT covered here — that page-level
-// access-control check (agent redirected home, admin allowed through) lives
-// solely in e2e/users.spec.ts's "access control" describe block now, which
-// this file used to duplicate.
+// (app/(main)/users/page.tsx) is NOT covered here. That page-level
+// access-control check — agent redirected home, admin allowed through —
+// lives solely in e2e/users.spec.ts's "access control" describe block
+// now, which this file used to duplicate.
 
 test.describe("unauthenticated route protection (proxy.ts)", () => {
   // proxy.ts only matches "/", "/dashboard/:path*", "/tickets/:path*",
-  // "/admin/:path*" — "/" is the only one of those with a real page built so
-  // far (see implementation-plan.md Phase 3), but the proxy redirect itself
-  // fires before Next.js even tries to resolve a page, so asserting it
-  // against "/dashboard/anything" (no page.tsx yet) is still valid coverage
-  // of the matcher/redirect logic itself.
+  // "/admin/:path*". "/" is the only one of those with a real page built
+  // so far (see implementation-plan.md Phase 3), but the proxy redirect
+  // itself fires before Next.js even tries to resolve a page — so
+  // asserting it against "/dashboard/anything" (no page.tsx yet) is still
+  // valid coverage of the matcher/redirect logic itself.
 
   test("visiting the protected root with no session redirects to /login with a callbackUrl", async ({
     page,

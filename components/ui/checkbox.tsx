@@ -6,12 +6,9 @@ import { CheckIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
-// New primitive — no Checkbox existed anywhere in components/ui/ before the
-// tickets list's bulk row-selection column needed one
-// (components/tickets/use-tickets-table.tsx). Same shape as the rest of
-// this directory: thin wrapper around a `radix-ui` part (see
-// dropdown-menu.tsx for the same import style), styled via cva-free
-// Tailwind + cn(), data-slot for consumers/tests to hook into.
+// This is a new primitive. No Checkbox existed anywhere in components/ui/ before the tickets list's bulk row-selection column needed one (components/tickets/use-tickets-table.tsx).
+//
+// This has the same shape as the rest of this directory: a thin wrapper around a `radix-ui` part (see dropdown-menu.tsx for the same import style), styled with cva-free Tailwind and cn(), with data-slot for consumers and tests to hook into.
 function Checkbox({
   className,
   ...props

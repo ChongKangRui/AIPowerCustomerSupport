@@ -6,10 +6,10 @@ import { useDebouncedValue } from "@/hooks/use-debounced-value";
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
-// setState calls that happen inside a fake-timer callback (fired via
-// vi.advanceTimersByTime) aren't picked up by React unless that advance
-// itself runs inside act() — otherwise the update happens but never flushes
-// to `result.current` before the assertion runs.
+// React does not pick up setState calls made inside a fake-timer
+// callback (fired through vi.advanceTimersByTime) unless the advance
+// itself runs inside act(). Without act(), the update happens but
+// never flushes to `result.current` before the assertion runs.
 describe("useDebouncedValue", () => {
   it("returns the initial value immediately, before any delay elapses", () => {
     const { result } = renderHook(() => useDebouncedValue("a", 700));

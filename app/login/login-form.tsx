@@ -27,9 +27,9 @@ type DemoAccount = {
   password: string;
 };
 
-// Demo-account autofill. Values are passed down from app/login/page.tsx (a
-// Server Component reading prisma/seed.ts's SEED_* vars directly) so the
-// buttons always match what was seeded, with no NEXT_PUBLIC_ copies needed.
+// This is the demo-account autofill.
+// app/login/page.tsx passes the values down — a Server Component that reads prisma/seed.ts's SEED_* vars directly.
+// So the buttons always match what was seeded, with no NEXT_PUBLIC_ copies needed.
 export function LoginForm({ demoAccounts }: { demoAccounts: readonly DemoAccount[] }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -44,34 +44,26 @@ export function LoginForm({ demoAccounts }: { demoAccounts: readonly DemoAccount
   const loginMutation = useMutation({
     mutationFn: (values: LoginInput) => apiClient.post("/api/login", values),
     onSuccess: async () => {
-      // Cancel first, *then* invalidate. This component's own useCurrentUser()
-      // call (below) fires a "session" fetch the instant LoginForm mounts —
-      // before the user has even submitted the form. If that fetch is still
-      // in flight when login succeeds (e.g. the dev server hasn't compiled
-      // /api/auth/session yet and it takes ~700ms), invalidateQueries alone
-      // won't start a genuinely new request: it piggybacks on the one
-      // already in flight, which was sent with the *pre-login* cookie and
-      // so resolves to "not logged in" — silently overwriting the correct
-      // post-login session in the cache. cancelQueries aborts that stale
-      // request (via the AbortSignal use-current-user.ts now forwards to
-      // axios) so the invalidate below is guaranteed to issue a fresh one.
-      await queryClient.cancelQueries({ queryKey: ["session"] });
-      // Refetch "who's logged in" before navigating, so the navbar on the
-      // destination page already has the right name instead of a stale
-      // "logged out" flash.
-      await queryClient.invalidateQueries({ queryKey: ["session"] });
-      // replace, not push: this overwrites /login's own history entry with
-      // the destination instead of adding a new one, so /login is no longer
-      // a reachable Back target at all — see the useCurrentUser effect below
-      // for why that alone still isn't the full fix.
+      // This cancels first, then invalidates.
       //
-      // This explicit call is load-bearing, not just belt-and-suspenders
-      // alongside that effect: relying solely on the effect (dropping this
-      // line and letting the invalidated query's refetch flip `user` truthy)
-      // was tried and measurably flaky under e2e load — the effect's
-      // redirect didn't fire reliably right after a fresh submit. Keep both:
-      // this one covers "just logged in", the effect covers the back-button/
-      // Router-Cache-remount cases where this onSuccess never runs at all.
+      // This component's own useCurrentUser() call below fires a "session" fetch the instant LoginForm mounts, before the user has even submitted the form.
+      // If that fetch is still in flight when login succeeds — for example, the dev server has not compiled /api/auth/session yet, and it takes about 700ms — invalidateQueries alone will not start a genuinely new request.
+      // It piggybacks on the one already in flight, which was sent with the pre-login cookie and so resolves to "not logged in".
+      // That would silently overwrite the correct post-login session in the cache.
+      //
+      // cancelQueries aborts that stale request, through the AbortSignal use-current-user.ts now forwards to axios.
+      // So the invalidate below is guaranteed to issue a fresh one.
+      await queryClient.cancelQueries({ queryKey: ["session"] });
+      // This refetches "who is logged in" before navigating, so the navbar on the destination page already has the right name instead of a stale "logged out" flash.
+      await queryClient.invalidateQueries({ queryKey: ["session"] });
+      // This uses replace, not push. It overwrites /login's own history entry with the destination, instead of adding a new one, so /login is no longer a reachable Back target at all.
+      // See the useCurrentUser effect below for why that alone still is not the full fix.
+      //
+      // This explicit call is load-bearing, not just belt-and-suspenders alongside that effect.
+      // Relying solely on the effect — dropping this line and letting the invalidated query's refetch flip `user` truthy — was tried.
+      // It was measurably flaky under e2e load: the effect's redirect did not fire reliably right after a fresh submit.
+      //
+      // Both stay. This one covers "just logged in." The effect covers the back-button and Router-Cache-remount cases, where this onSuccess never runs at all.
       router.replace(safeRedirectTarget(searchParams.get("callbackUrl")));
     },
   });
@@ -85,19 +77,15 @@ export function LoginForm({ demoAccounts }: { demoAccounts: readonly DemoAccount
     form.setValue("password", account.password, { shouldValidate: true });
   }
 
-  // Two different "already logged in, don't show me the login form again"
-  // gaps, each needing its own fix — app/login/page.tsx's server-side
-  // auth() redirect only covers a genuinely fresh request (typing the URL,
-  // a hard reload):
+  // There are two different "already logged in, do not show me the login form again" gaps, and each needs its own fix.
+  // app/login/page.tsx's server-side auth() redirect only covers a genuinely fresh request: typing the URL, or a hard reload.
   //
-  // 1. True browser back/forward cache (bfcache) — the whole document was
-  //    unloaded and later restored (e.g. leaving the tab/site and coming
-  //    back), which freezes the JS heap as-is and does NOT re-run mount
-  //    effects, so nothing below would fire on its own. `pageshow`'s
-  //    `persisted` flag is the browser's own signal that this happened;
-  //    router.refresh() forces a real request, and since this page uses
-  //    auth() (a dynamic API) that request always re-runs the redirect
-  //    check against the current session.
+  // Gap 1: a true browser back/forward cache (bfcache) restore.
+  // The whole document was unloaded and later restored — for example, leaving the tab or site and coming back.
+  // That freezes the JS heap as-is and does not re-run mount effects, so nothing below would fire on its own.
+  //
+  // `pageshow`'s `persisted` flag is the browser's own signal that this happened.
+  // router.refresh() forces a real request. Since this page uses auth(), a dynamic API, that request always re-runs the redirect check against the current session.
   useEffect(() => {
     function handlePageShow(event: PageTransitionEvent) {
       if (event.persisted) {
@@ -109,16 +97,13 @@ export function LoginForm({ demoAccounts }: { demoAccounts: readonly DemoAccount
     return () => window.removeEventListener("pageshow", handlePageShow);
   }, [router]);
 
-  // 2. Next's own client-side Router Cache — pressing Back after a
-  //    client-side navigation (no document unload at all, so bfcache/
-  //    `pageshow` never enters the picture) can swap this exact component
-  //    back in from a render Next cached moments ago, as a genuine remount.
-  //    Reusing useCurrentUser() here — the same TanStack Query-backed
-  //    session hook the navbar already uses — means this effect reads
-  //    session state that's very likely already warm in the shared
-  //    QueryClient cache (populated right after login), so it can redirect
-  //    away almost immediately on remount rather than waiting on a fresh
-  //    network round trip.
+  // Gap 2: Next's own client-side Router Cache.
+  // Pressing Back after a client-side navigation causes no document unload at all, so bfcache and `pageshow` never enter the picture.
+  // It can instead swap this exact component back in from a render Next cached moments ago, as a genuine remount.
+  //
+  // This reuses useCurrentUser() here, the same TanStack Query-backed session hook the navbar already uses.
+  // So this effect reads session state that is very likely already warm in the shared QueryClient cache, populated right after login.
+  // It can then redirect away almost immediately on remount, instead of waiting on a fresh network round trip.
   useEffect(() => {
     if (user) {
       router.replace(safeRedirectTarget(searchParams.get("callbackUrl")));

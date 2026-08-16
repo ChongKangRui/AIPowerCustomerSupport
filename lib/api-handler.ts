@@ -9,21 +9,24 @@ import { createRequestLogger, type LoggedUser } from "@/lib/logger";
 
 type Logger = ReturnType<typeof createRequestLogger>;
 
-// `auth` is overloaded (NextAuth also uses it as a middleware wrapper, a
-// route-handler wrapper, etc. depending on how it's called) — ReturnType<>
-// applied directly to that overloaded type grabs the wrong signature. Going
-// through a helper that calls it the one way this file actually does (zero
-// args) forces TS to resolve the correct overload via normal call-site
-// resolution, then ReturnType<> extracts *that* one unambiguously.
+// `auth` has many overloads. NextAuth also uses it as a middleware
+// wrapper, a route-handler wrapper, and more, depending on the call.
+// ReturnType<> on the raw overloaded type would pick the wrong signature.
+//
+// This helper calls `auth()` the one way this file uses it: with zero
+// arguments. That forces TS to resolve the correct overload at the call
+// site. ReturnType<> then extracts that one signature only.
 function getSession() {
   return auth();
 }
 type Session = Awaited<ReturnType<typeof getSession>>;
 
 // ---------------------------------------------------------------------------
-// Errors — throw these from anywhere inside a route handler to control the
-// exact status code/message sent back. Anything else thrown becomes a
-// generic 500, so no route needs its own try/catch.
+// Errors
+//
+// Throw one of these from inside a route handler to set the exact status
+// code and message sent back. Any other thrown value becomes a generic
+// 500 response. No route needs its own try/catch.
 // ---------------------------------------------------------------------------
 
 export class HttpError extends Error {
@@ -67,7 +70,7 @@ export class ConflictError extends HttpError {
 }
 
 export class TooManyRequestsError extends HttpError {
-  /** Seconds the client should wait before retrying — sent as `Retry-After`. */
+  /** Seconds to wait before the client retries. Sent as the `Retry-After` header. */
   retryAfterSeconds?: number;
 
   constructor(message = "Too Many Requests", retryAfterSeconds?: number) {
@@ -88,36 +91,39 @@ type ApiHandler<Context> = (
 ) => Promise<Response> | Response;
 
 /**
- * Wraps a Route Handler export (GET/POST/PATCH/...) with:
+ * Wraps a Route Handler export (GET/POST/PATCH/...). It adds three things:
  *
- *  1. A request-scoped logger, created once per request and handed to the
- *     handler as its 3rd argument — routes call `log.debug/info/warn(...)`
- *     for their own internal steps instead of creating a logger themselves.
- *     (Next.js Route Handlers have no Express-style (req, res, next) chain
- *     to attach things to `req` with, so this — a higher-order function each
- *     route is wrapped in — is the App Router equivalent of that pattern.)
+ *  1. A request-scoped logger. The wrapper creates one per request and
+ *     passes it to the handler as the 3rd argument. Routes call
+ *     `log.debug/info/warn(...)` for their own steps instead of creating a
+ *     logger themselves.
+ *     Next.js Route Handlers have no Express-style (req, res, next) chain
+ *     to attach things to `req`. This wrapper is the App Router version of
+ *     that pattern.
  *
- *  2. A single try/catch shared by every route: throw `HttpError` (or one of
- *     its subclasses — BadRequestError, NotFoundError, etc.) for a specific
- *     status code + message; a Zod validation error becomes 400 automatically;
- *     anything else unexpected becomes a generic 500. No route needs its own
- *     try/catch.
+ *  2. One shared try/catch for every route. Throw `HttpError` (or a
+ *     subclass — BadRequestError, NotFoundError, etc.) to set a specific
+ *     status code and message. A Zod validation error becomes 400
+ *     automatically. Any other error becomes a generic 500. No route
+ *     needs its own try/catch.
  *
- *  3. The session, resolved once here and handed to the handler as its 4th
- *     argument — `auth()` (database session strategy) is a real DB query,
- *     not a cheap cookie decode, and isn't deduped by NextAuth itself across
- *     multiple calls within one request. Routes that need to enforce
- *     authentication/authorization still do their own check on the value
- *     they're given (this wrapper doesn't enforce anything, same as before —
- *     a route is still its own authoritative entry point, independent of
- *     any page-level guard); they just no longer each re-fetch it.
- *     Best-effort: a failed lookup here resolves to `null` rather than
- *     throwing (see the comment at the call site below), so a route relying
- *     on it for enforcement will see "no session" and correctly fail closed
- *     with 401/403 — it just won't distinguish that from a genuine transient
- *     auth-service failure (which would previously have surfaced as a 500
- *     from that route's own unswallowed `auth()` call). Worth knowing if
- *     you're ever debugging an unexpected 401 under that specific condition.
+ *  3. The session, resolved once here and passed to the handler as the
+ *     4th argument. `auth()` runs a real DB query under the database
+ *     session strategy — it is not a cheap cookie decode. NextAuth does
+ *     not dedupe repeated calls within one request, so resolving it once
+ *     here saves every route from fetching its own copy.
+ *
+ *     This wrapper does not enforce anything by itself. A route that
+ *     needs auth still checks the session value it receives. Each route
+ *     stays its own authoritative entry point, independent of any
+ *     page-level guard.
+ *
+ *     The lookup is best-effort. A failed lookup resolves to `null`
+ *     instead of throwing (see the comment at the call site below). A
+ *     route that requires a session still fails closed with 401/403 in
+ *     that case. It just cannot tell "no session" apart from a transient
+ *     auth-service failure, which used to surface as a plain 500. Keep
+ *     this in mind if you debug an unexpected 401.
  *
  * Usage:
  *   export const GET = withApiHandler(async (request, context, log, session) => {
@@ -129,13 +135,13 @@ type ApiHandler<Context> = (
  *   });
  */
 
-// worth to mention that context represent a small object holding 
-// the dynamic URL segment values for that route.
-//  E.g. for a file at app/api/tickets/[id]/route.ts, 
-// if someone requests /api/tickets/abc123,
-//  Next.js calls your GET with
-//  context = { params: Promise.resolve({ id: "abc123" }) }. 
-// That's how you read abc123 out of the URL.
+// `context` is the small object Next.js passes with the dynamic URL
+// segment values for the route.
+//
+// Example: for app/api/tickets/[id]/route.ts, a request to
+// /api/tickets/abc123 calls GET with
+// context = { params: Promise.resolve({ id: "abc123" }) }.
+// Read `abc123` back out of the URL this way.
 export function withApiHandler<Context = { params?: Promise<Record<string, string>> }>(
   handler: ApiHandler<Context>
 ) {
@@ -145,10 +151,11 @@ export function withApiHandler<Context = { params?: Promise<Record<string, strin
     const route = request.nextUrl.pathname;
     const method = request.method;
 
-    // Best-effort — logging must never itself be the reason a request fails.
-    // Also the one and only auth() call for the whole request now (see the
-    // 3rd point in the doc comment above) — handed to the handler below
-    // instead of each route re-fetching its own copy.
+    // Best-effort: logging must never cause a request to fail.
+    //
+    // This is also the only auth() call for the whole request (see point 3
+    // in the doc comment above). The wrapper passes the result to the
+    // handler below, so no route fetches its own copy.
     const session = await getSession().catch(() => null);
     const user: LoggedUser | null = session?.user
       ? {
@@ -174,8 +181,9 @@ export function withApiHandler<Context = { params?: Promise<Record<string, strin
       const durationMs = Date.now() - start;
 
       if (error instanceof HttpError) {
-        // Expected, route-declared failure (404, 409, etc.) — one line is enough.
-        // `err` also carries `.cause` (e.g. the original DB error) when set.
+        // Expected, route-declared failure (404, 409, etc.). One log line
+        // is enough. `err` also carries `.cause` (the original DB error)
+        // when set.
         log.warn(
           { status: error.status, durationMs, err: error },
           "Request failed"
@@ -201,8 +209,9 @@ export function withApiHandler<Context = { params?: Promise<Record<string, strin
         );
       }
 
-      // Unexpected error — full detail (stack trace, etc.) server-side via
-      // `err`, but only a generic message goes back to the client.
+      // Unexpected error. The full detail (stack trace, etc.) goes to the
+      // server log via `err`. Only a generic message goes back to the
+      // client.
       log.error({ err: error, durationMs }, "Unhandled error");
       return NextResponse.json(
         { error: "Internal Server Error" },

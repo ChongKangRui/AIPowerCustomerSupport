@@ -12,14 +12,11 @@ import { prisma } from "@/lib/prisma";
 import { Role, TicketStatus } from "@/lib/generated/prisma/enums";
 import { bulkAssignTicketsSchema } from "@/models/ticket.model";
 
-// PATCH /api/tickets/assign — admin-only bulk assignment, driven by the
-// tickets list's multi-select toolbar (components/tickets/tickets-view.tsx).
-// Same eligibility rule as the single-ticket .../[id]/assign/route.ts: only
-// OPEN tickets are assignable. All-or-nothing — if any requested ticket
-// isn't OPEN (or doesn't exist), the whole batch 409s/404s rather than
-// silently assigning a subset. The client already prevents selecting
-// non-OPEN rows (use-tickets-table.tsx's enableRowSelection), so this is a
-// race-condition backstop, not the normal path.
+// PATCH /api/tickets/assign is admin-only bulk assignment, driven by the tickets list's multi-select toolbar (components/tickets/tickets-view.tsx).
+// It has the same eligibility rule as the single-ticket .../[id]/assign/route.ts: only OPEN tickets are assignable.
+//
+// This is all-or-nothing. If any requested ticket is not OPEN, or does not exist, the whole batch returns a 409 or 404 error, instead of silently assigning a subset.
+// The client already prevents selecting non-OPEN rows (use-tickets-table.tsx's enableRowSelection), so this check is a race-condition backstop, not the normal path.
 export const PATCH = withApiHandler(async (request, _context, log, session) => {
   if (!session?.user) throw new UnauthorizedError();
   if (session.user.role !== Role.ADMIN) throw new ForbiddenError();

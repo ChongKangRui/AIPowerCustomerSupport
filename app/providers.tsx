@@ -2,11 +2,9 @@
 
 import { QueryClient, QueryClientProvider, environmentManager } from "@tanstack/react-query";
 
-// Standard TanStack Query v5 App Router pattern: on the server, always make a
-// fresh QueryClient per request (no shared state across requests/users). In
-// the browser, reuse one client for the lifetime of the tab so cached data
-// (e.g. the current session) survives client-side navigations instead of
-// being thrown away on every render.
+// This is the standard TanStack Query v5 App Router pattern.
+// On the server, this always makes a fresh QueryClient per request, with no shared state across requests or users.
+// In the browser, this reuses one client for the lifetime of the tab, so cached data — such as the current session — survives client-side navigations instead of being thrown away on every render.
 function makeQueryClient() {
   return new QueryClient({
     defaultOptions: {
@@ -19,9 +17,7 @@ function makeQueryClient() {
 
 let browserQueryClient: QueryClient | undefined;
 
-// ensure that in the server side render
-// provide a short live duration of query client in server side
-// provide the cache client in browser side
+// This branches per makeQueryClient's comment above: a fresh client on the server, the one shared client in the browser.
 function getQueryClient() {
   if (environmentManager.isServer()) {
     return makeQueryClient();

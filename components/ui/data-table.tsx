@@ -10,17 +10,15 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-// Column defs across the app (components/tickets/use-tickets-table.tsx,
-// components/users/use-users-table.tsx) carry their own layout via `meta`
-// instead of a separate id-keyed className lookup per table — headerClassName
-// controls the <th> (column width, alignment), cellClassName the <td>
-// (truncation, muted text, etc.). Module augmentation, same pattern
-// TanStack's own docs use for extending ColumnMeta. This is what makes
-// `meta: { headerClassName: "...", cellClassName: "..." }` type-check at
-// each column-def call site in use-tickets-table.tsx/use-users-table.tsx.
+// Column defs across the app (components/tickets/use-tickets-table.tsx, components/users/use-users-table.tsx) carry their own layout through `meta`, instead of a separate id-keyed className lookup per table.
+// headerClassName controls the <th>, for column width and alignment.
+// cellClassName controls the <td>, for truncation, muted text, and similar styling.
+//
+// This is module augmentation, the same pattern TanStack's own docs use for extending ColumnMeta.
+// It is what makes `meta: { headerClassName: "...", cellClassName: "..." }` type-check at each column-def call site in use-tickets-table.tsx and use-users-table.tsx.
 declare module "@tanstack/react-table" {
-  // Generic params must match ColumnMeta's own signature for the interfaces
-  // to merge; this augmentation's body doesn't need to reference them.
+  // The generic params must match ColumnMeta's own signature for the interfaces to merge.
+  // This augmentation's body does not need to reference them.
   /* eslint-disable @typescript-eslint/no-unused-vars */
   interface ColumnMeta<
     TFeatures extends TableFeatures,
@@ -33,20 +31,14 @@ declare module "@tanstack/react-table" {
   /* eslint-enable @typescript-eslint/no-unused-vars */
 }
 
-// header.column/cell.column's sorting methods and columnDef.meta are only
-// visible to TS when TFeatures is known to include rowSortingFeature (via
-// TanStack's `Extract<keyof TFeatures, ...>` feature-map algebra) — but
-// DataTable is deliberately generic over ANY TFeatures, including
-// use-users-table.tsx's `tableFeatures({})` (Users registers no extra
-// features at all, sorting or otherwise — see that file's comment). Rather
-// than force every table to register rowSortingFeature just to satisfy this
-// component's types, these two narrow shapes describe only the bits this
-// file actually reads off a column at runtime — true for any TFeatures,
-// checked with `?.` since the methods/meta genuinely may be absent (e.g.
-// meta is always optional; sorting methods are absent for a table that
-// didn't register rowSortingFeature, in which case getCanSort would be
-// undefined and the plain-header branch below is taken, unchanged from
-// today's actual behavior).
+// header.column and cell.column's sorting methods, and columnDef.meta, are only visible to TS when TFeatures is known to include rowSortingFeature.
+// That runs through TanStack's `Extract<keyof TFeatures, ...>` feature-map algebra.
+// But DataTable is deliberately generic over ANY TFeatures, including use-users-table.tsx's `tableFeatures({})` — Users registers no extra features at all, sorting or otherwise. See that file's comment.
+//
+// Rather than force every table to register rowSortingFeature just to satisfy this component's types, these two narrow shapes describe only the bits this file actually reads off a column at runtime, true for any TFeatures.
+// They are checked with `?.`, since the methods and meta genuinely may be absent.
+// meta is always optional. Sorting methods are absent for a table that did not register rowSortingFeature.
+// In that case getCanSort would be undefined, and the plain-header branch below is taken, unchanged from today's actual behavior.
 type SortableColumn = {
   getCanSort?: () => boolean;
   getIsSorted?: () => false | "asc" | "desc";
@@ -54,18 +46,14 @@ type SortableColumn = {
 };
 type ColumnLayoutMeta = { headerClassName?: string; cellClassName?: string };
 
-// Shared TanStack Table rendering shell, extracted out of what used to be
-// near-identical thead/tbody JSX duplicated between TicketsTable and
-// UsersTable: a sortable-header button + aria-sort/direction icon for any
-// column with getCanSort() true, a plain header otherwise, and FlexRender
-// for every cell. Each domain owns its own column defs (identity,
-// sortability, cell renderers, meta) via its own useXTable() hook —
-// components/tickets/use-tickets-table.tsx,
-// components/users/use-users-table.tsx — this component only renders
-// whatever `table` instance it's handed, with no entity-specific knowledge.
-// A column with no sort feature registered/enabled (e.g. every Users
-// column, or Tickets' Customer/Assigned) just renders its plain header;
-// the sortable-header branch is a no-op for them, not a per-table opt-out.
+// This is a shared TanStack Table rendering shell.
+// It replaces what used to be near-identical thead/tbody JSX duplicated between TicketsTable and UsersTable: a sortable-header button plus an aria-sort/direction icon for any column with getCanSort() true, a plain header otherwise, and FlexRender for every cell.
+//
+// Each domain owns its own column defs — identity, sortability, cell renderers, meta — through its own useXTable() hook (components/tickets/use-tickets-table.tsx, components/users/use-users-table.tsx).
+// This component only renders whatever `table` instance it is handed, with no entity-specific knowledge.
+//
+// A column with no sort feature registered or enabled — every Users column, or Tickets' Customer and Assigned columns — just renders its plain header.
+// The sortable-header branch is a no-op for them, not a per-table opt-out.
 export function DataTable<TFeatures extends TableFeatures, TData extends RowData>({
   table,
 }: {

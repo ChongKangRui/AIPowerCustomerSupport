@@ -20,8 +20,9 @@ const agent: UserListItem = {
   createdAt: "2026-01-02T00:00:00.000Z",
 };
 
-// A user with no display name — the adapter allows User.name to be null, so
-// the search matcher must fall back to "" instead of crashing on it.
+// A user with no display name. The adapter allows User.name to be
+// null, so the search matcher must fall back to "" instead of crashing
+// on it.
 const nameless: UserListItem = {
   id: "3",
   name: null,
@@ -57,8 +58,8 @@ describe("filterUsers", () => {
 
   it("does not throw on a null name and just doesn't match it by name", () => {
     expect(filterUsers(users, "noname", "ALL")).toEqual([nameless]);
-    // A search that would only ever match a *name* finds nothing for the
-    // nameless user, rather than throwing on `null.toLowerCase()`.
+    // A search that would match only a name finds nothing for the
+    // nameless user, instead of throwing on `null.toLowerCase()`.
     expect(filterUsers([nameless], "anything", "ALL")).toEqual([]);
   });
 

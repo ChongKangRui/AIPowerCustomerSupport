@@ -1,12 +1,12 @@
 import axios from "axios";
 
-// Shared axios instance for client-side requests to our own API routes.
+// Shared axios instance for client requests to our own API routes.
 //
-// Every route wrapped in withApiHandler (lib/api-handler.ts) returns errors
-// as `{ error: string }` JSON. This interceptor unwraps that into a plain
-// Error, so callers (useMutation's onError, try/catch, etc.) just get a
-// clean `error.message` instead of having to reach into `error.response.data`
-// themselves every time.
+// Every route wrapped in withApiHandler (lib/api-handler.ts) sends errors
+// as `{ error: string }` JSON. This interceptor turns that JSON into a
+// plain Error. Callers (useMutation's onError, try/catch, etc.) then read
+// a clean `error.message`. They do not need to reach into
+// `error.response.data` each time.
 export const apiClient = axios.create({
   headers: { "Content-Type": "application/json" },
 });

@@ -1,13 +1,15 @@
 import { describe, it, expect, vi } from "vitest";
 
-// api-handler.ts imports @/auth (for withApiHandler's session lookup), which
-// pulls in next-auth -> `import { NextRequest } from "next/server"` with no
-// file extension. Next's package.json has no "exports" map, so that bare
-// import only resolves under Node's CJS extension-probing — Vitest/vite-node
-// loads next-auth as ESM here and the resolution fails. This file only tests
-// the plain HttpError class hierarchy (not the auth-dependent parts of
-// withApiHandler), so mocking @/auth sidesteps the whole chain instead of
-// fighting that resolution gap.
+// api-handler.ts imports @/auth for withApiHandler's session lookup.
+// That import pulls in next-auth, which does
+// `import { NextRequest } from "next/server"` with no file extension.
+// Next's package.json has no "exports" map, so that bare import
+// resolves only under Node's CJS extension-probing. Vitest/vite-node
+// loads next-auth as ESM here, so the resolution fails.
+//
+// This file tests only the plain HttpError class hierarchy, not the
+// auth-dependent parts of withApiHandler. Mocking @/auth sidesteps the
+// whole chain instead of fighting that resolution gap.
 vi.mock("@/auth", () => ({ auth: vi.fn() }));
 
 import {
@@ -20,9 +22,10 @@ import {
   TooManyRequestsError,
 } from "@/lib/api-handler";
 
-// withApiHandler itself is out of scope here — it needs a real NextRequest,
-// auth(), and logger, and belongs to a later integration-style test. This
-// file only covers the plain HttpError class hierarchy.
+// withApiHandler itself is out of scope here. It needs a real
+// NextRequest, auth(), and logger, and belongs in a later
+// integration-style test. This file covers only the plain HttpError
+// class hierarchy.
 
 describe("HttpError", () => {
   it("sets status, message, and name", () => {

@@ -20,9 +20,10 @@ describe("loginSchema", () => {
     });
   });
 
-  // .email() format-checks the raw value before .trim() ever runs, so
-  // surrounding whitespace is NOT rescued by the later .trim() call — this
-  // locks in that current (non-obvious) behavior rather than assuming it.
+  // .email() checks the raw value's format before .trim() ever runs. So
+  // the later .trim() call does not rescue surrounding whitespace. This
+  // test locks in that current, non-obvious behavior instead of assuming
+  // it.
   it("rejects an email with surrounding whitespace", () => {
     const result = loginSchema.safeParse({ email: "  a@b.co  ", password: "secret" });
 

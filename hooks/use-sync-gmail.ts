@@ -14,11 +14,12 @@ type PollStats = {
   ignoredClosedReplies: number;
 };
 
-// Tickets list toolbar's "Fetch Gmail" button (tickets-view.tsx). Mailbox-
-// wide, not scoped to any one ticket — see POST /api/gmail/poll's comment —
-// so on success it invalidates the whole ["tickets"] query-key prefix,
-// covering every page/sort/status/q combination already cached, rather than
-// a single entry the way useUpdateTicketStatus/useAssignTicket do.
+// This backs the tickets list toolbar's "Fetch Gmail" button (tickets-view.tsx).
+// It is mailbox-wide, not scoped to any one ticket. See POST /api/gmail/poll's comment.
+//
+// So on success it invalidates the whole ["tickets"] query-key prefix.
+// That covers every page, sort, status, and q combination already cached.
+// useUpdateTicketStatus and useAssignTicket invalidate a single entry instead — this hook cannot, since it does not know which tickets changed.
 export function useSyncGmail() {
   const queryClient = useQueryClient();
 

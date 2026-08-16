@@ -4,13 +4,14 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { TicketsPagination } from "@/components/tickets/tickets-pagination";
 import { useTicketsTable } from "@/components/tickets/use-tickets-table";
 
-// TicketsPagination is pure/presentational, driven by the same shared
-// `table` instance TicketsTable renders (see that file's test for why a
-// real useTicketsTable() instance is used here rather than a stubbed fake).
+// TicketsPagination is pure and presentational, driven by the same
+// shared `table` instance TicketsTable renders. See that file's test
+// for why this uses a real useTicketsTable() instance instead of a
+// stubbed fake.
 //
-// No jest-dom in this repo (see other *.test.tsx files) — disabled state is
-// asserted via the button's own `.disabled` property, not a `toBeDisabled()`
-// matcher.
+// This repo has no jest-dom (see other *.test.tsx files). So the tests
+// check disabled state through the button's own `.disabled` property,
+// not a `toBeDisabled()` matcher.
 afterEach(cleanup);
 
 function renderPagination({ page, total, onPageChange = vi.fn() }: {

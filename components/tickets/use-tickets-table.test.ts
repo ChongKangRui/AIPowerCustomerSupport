@@ -6,13 +6,15 @@ import { TicketStatus } from "@/lib/generated/prisma/enums";
 import type { TicketListItem, TicketSortableField } from "@/models/ticket.model";
 
 // useTicketsTable's only real logic is translating TanStack Table's
-// internal shapes (a SortingState array, a 0-indexed pageIndex) to/from the
-// simple onSortChange(field, dir)/onPageChange(page) callbacks TicketsView
-// uses for its URL-sync — everything else is TanStack's own, already-tested
-// machinery. That pageIndex↔page (0-indexed vs 1-indexed) conversion is the
-// most likely spot for an off-by-one, so it gets direct coverage here,
-// independent of rendering (see tickets-table.test.tsx for the rendered/
-// click-driven half of this).
+// internal shapes, a SortingState array and a 0-indexed pageIndex, to
+// and from the simple onSortChange(field, dir) and onPageChange(page)
+// callbacks TicketsView uses for its URL-sync. Everything else is
+// TanStack's own, already-tested machinery.
+//
+// The pageIndex-to-page conversion (0-indexed versus 1-indexed) is the
+// most likely spot for an off-by-one. It gets direct coverage here,
+// independent of rendering. See tickets-table.test.tsx for the
+// rendered, click-driven half of this.
 function setup(overrides?: {
   page?: number;
   sortBy?: TicketSortableField;
@@ -43,11 +45,11 @@ function setup(overrides?: {
   return { table: result.current, onSortChange, onPageChange };
 }
 
-// enableRowSelection's predicate only ever reads row.original off whatever
-// it's given — a minimal stub is enough; the rest of a real TanStack Row is
-// irrelevant to this pure-function test. `as never` sidesteps typing out a
-// full Row<...> just to satisfy the parameter type for a value this cast
-// immediately discards anyway.
+// enableRowSelection's predicate reads only row.original off whatever
+// it receives, so a minimal stub is enough. The rest of a real
+// TanStack Row is irrelevant to this pure-function test. `as never`
+// avoids typing out a full Row<...> just to satisfy the parameter
+// type, for a value this cast immediately discards anyway.
 function ticketRow(status: TicketListItem["status"]) {
   return { original: { status } } as never;
 }
@@ -65,10 +67,10 @@ describe("useTicketsTable", () => {
     it("calls onSortChange correctly when TanStack passes a function updater instead", () => {
       const { table, onSortChange } = setup({ sortBy: "subject", sortDir: "asc" });
 
-      // TanStack's own toggle handler calls onSortingChange with an updater
-      // function, not a direct value — the current controlled `sorting` (the
-      // hook's closed-over [{ id: "subject", desc: false }]) is what it's
-      // called with.
+      // TanStack's own toggle handler calls onSortingChange with an
+      // updater function, not a direct value. It calls that updater
+      // with the current controlled `sorting`, the hook's closed-over
+      // [{ id: "subject", desc: false }].
       table.options.onSortingChange?.((prev) =>
         prev.map((s) => ({ ...s, desc: !s.desc }))
       );
@@ -115,11 +117,11 @@ describe("useTicketsTable", () => {
   });
 
   it("getRowId uses the ticket's own id, not row index", () => {
-    // Selection is keyed by this id (tickets-view.tsx reads
+    // Selection is keyed by this id. tickets-view.tsx reads
     // Object.keys(rowSelection) straight back out as the bulk-assign
-    // payload's ticketIds) — an index-based id would silently point at a
-    // different ticket after a page/sort change. See this hook's own
-    // comment on why.
+    // payload's ticketIds. An index-based id would silently point at a
+    // different ticket after a page or sort change. See this hook's own
+    // comment for why.
     const { table } = setup();
 
     expect(table.options.getRowId?.({ id: "ticket-42" } as TicketListItem, 0)).toBe("ticket-42");

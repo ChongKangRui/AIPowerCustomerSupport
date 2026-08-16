@@ -15,8 +15,7 @@ export function UsersView() {
   const [search, setSearch] = useState("");
   const [role, setRole] = useState<RoleFilter>("ALL");
 
-  // See filter-users.ts for why this filtering happens client-side, and why
-  // it's a standalone function rather than written inline here.
+  // See filter-users.ts for why this filtering happens client-side, and why it is a standalone function instead of written inline here.
   const filteredUsers = useMemo(
     () => filterUsers(users, search, role),
     [users, search, role]

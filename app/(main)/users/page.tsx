@@ -4,12 +4,11 @@ import { UsersView } from "@/components/users/users-view";
 import { getSession } from "@/lib/get-session";
 import { Role } from "@/lib/generated/prisma/enums";
 
-// Admin-only page. app/(main)/layout.tsx already guarantees a valid,
-// logged-in session before this ever renders (redirecting to /login
-// otherwise) — this only needs its own additional role check on top, same
-// pattern as app/login/page.tsx's session redirect. getSession() (not
-// auth() directly) so this and the layout's own check share one auth()
-// call per request instead of two — see lib/get-session.ts.
+// This is an admin-only page.
+// app/(main)/layout.tsx already guarantees a valid, logged-in session before this ever renders — it redirects to /login otherwise.
+// So this only needs its own additional role check on top, the same pattern as app/login/page.tsx's session redirect.
+//
+// This uses getSession(), not auth() directly, so this and the layout's own check share one auth() call per request instead of two. See lib/get-session.ts.
 export default async function UsersPage() {
   const session = await getSession();
 

@@ -4,47 +4,54 @@ import { ADMIN } from "./seeded-users";
 import { ADMIN_STORAGE_STATE } from "./storage-state";
 
 // Coverage for the admin "edit user" flow: the "Edit user" mode of
-// components/users/user-form-dialog.tsx (shared with the "New user" dialog),
-// triggered per-row by components/users/edit-user-dialog.tsx, backed by
-// hooks/use-update-user.ts and PATCH /api/users/[id]
-// (app/api/users/[id]/route.ts). Read-only listing/access-control coverage
-// lives in e2e/users.spec.ts; the create-user half of this same shared
-// dialog lives in e2e/admin-create-user.spec.ts — this file is scoped to the
-// edit-specific behavior: pre-filling, the "blank password = unchanged"
-// contract, the duplicate-email 409, and the self-edit ["session"]
-// invalidation that refreshes the navbar.
+// components/users/user-form-dialog.tsx (shared with the "New user"
+// dialog), triggered per-row by components/users/edit-user-dialog.tsx,
+// backed by hooks/use-update-user.ts and PATCH /api/users/[id]
+// (app/api/users/[id]/route.ts).
 //
-// The pure "opens pre-filled with name/email, empty password field" render
-// assertion has moved to components/users/user-form-dialog.test.tsx's
-// "UserFormDialog — edit mode" describe block — it only needs a `user` prop,
-// not a real row/login/dev server. The first test below keeps its own name
-// for the row it creates and edits, but only asserts on the dialog to drive
-// into the actual behavior under test: that saving with the password field
+// Read-only listing/access-control coverage lives in e2e/users.spec.ts;
+// the create-user half of this same shared dialog lives in
+// e2e/admin-create-user.spec.ts. This file is scoped to the edit-specific
+// behavior: pre-filling, the "blank password = unchanged" contract, the
+// duplicate-email 409, and the self-edit ["session"] invalidation that
+// refreshes the navbar.
+//
+// The pure "opens pre-filled with name/email, empty password field"
+// render assertion has moved to
+// components/users/user-form-dialog.test.tsx's "UserFormDialog — edit
+// mode" describe block — it only needs a `user` prop, not a real
+// row/login/dev server. The first test below keeps its own name for the
+// row it creates and edits, but only asserts on the dialog to drive into
+// the actual behavior under test: that saving with the password field
 // left blank really does leave the password hash unchanged server-side,
 // which only a real backend can prove.
 //
-// Every test loads the shared ADMIN storageState snapshot (e2e/auth.setup.ts)
-// rather than driving a UI login for the *editing* steps — the login flow
-// itself is covered by e2e/login.spec.ts. Two tests below do drive a real UI
-// login, but only as a black-box way to prove a password hash did or didn't
-// change server-side (there's no other way to observe that from a spec).
+// Every test loads the shared ADMIN storageState snapshot
+// (e2e/auth.setup.ts) rather than driving a UI login for the *editing*
+// steps — the login flow itself is covered by e2e/login.spec.ts. Two
+// tests below do drive a real UI login, but only as a black-box way to
+// prove a password hash did or didn't change server-side — there's no
+// other way to observe that from a spec.
 //
 // Shared-state isolation: fullyParallel workers share one test DB that's
-// reset only once for the whole suite run (e2e/global-setup.ts). Tests that
-// need to edit *something* create their own throwaway user first (via the
-// existing "New user" dialog, with an email unique to the attempt — see the
-// comment on the same pattern in e2e/admin-create-user.spec.ts for why
-// test.info().testId alone isn't enough and Date.now() is appended too)
-// rather than mutating the seeded AGENT/ADMIN rows other specs assert on — with one
-// deliberate, documented exception: the last test below edits the seeded
-// ADMIN's own name (to exercise the self-edit navbar refresh, which only
-// fires for the *actually logged-in* user) and restores it in a `finally`
-// block before the test ends. That mirrors how e2e/admin-create-user.spec.ts
-// already documents its one deliberate seeded-fixture-adjacent exception (its
-// duplicate-email test targets ADMIN.email read-only); this one is a real,
-// if brief, mutation, so if it ever surfaces as flaky alongside
-// e2e/login.spec.ts's "logs in as the seeded admin" test (which asserts on
-// ADMIN.name), that shared window is why — see the test's own comment.
+// reset only once for the whole suite run (e2e/global-setup.ts). Tests
+// that need to edit *something* create their own throwaway user first —
+// via the existing "New user" dialog, with an email unique to the
+// attempt, see the comment on the same pattern in
+// e2e/admin-create-user.spec.ts for why test.info().testId alone isn't
+// enough and Date.now() is appended too — rather than mutating the
+// seeded AGENT/ADMIN rows other specs assert on.
+//
+// One deliberate, documented exception: the last test below edits the
+// seeded ADMIN's own name, to exercise the self-edit navbar refresh
+// (which only fires for the *actually logged-in* user), and restores it
+// in a `finally` block before the test ends. That mirrors how
+// e2e/admin-create-user.spec.ts already documents its one deliberate
+// seeded-fixture-adjacent exception (its duplicate-email test targets
+// ADMIN.email read-only) — this one is a real, if brief, mutation, so if
+// it ever surfaces as flaky alongside e2e/login.spec.ts's "logs in as
+// the seeded admin" test (which asserts on ADMIN.name), that shared
+// window is why — see the test's own comment.
 
 async function createUserViaUi(
   page: Page,
@@ -102,13 +109,15 @@ test.describe("admin editing a user from /users", () => {
 
     // Can't assert a password hash directly — prove it wasn't touched by
     // driving a real, fresh, unauthenticated login with the *original*
-    // password. storageState: undefined is load-bearing here, not a no-op:
-    // this file's test.use({ storageState: ADMIN_STORAGE_STATE }) is the
-    // default for browser.newContext() too (it inherits ambient test
-    // options, same as it would for e.g. viewport), so omitting this would
-    // silently hand loginPage the admin's own session cookie — /login would
-    // then redirect it straight to "/" as already-authenticated instead of
-    // ever rendering the form this test needs to fill in.
+    // password.
+    //
+    // storageState: undefined is load-bearing here, not a no-op: this
+    // file's test.use({ storageState: ADMIN_STORAGE_STATE }) is the
+    // default for browser.newContext() too — it inherits ambient test
+    // options, same as it would for e.g. viewport. So omitting this would
+    // silently hand loginPage the admin's own session cookie, and /login
+    // would then redirect it straight to "/" as already-authenticated
+    // instead of ever rendering the form this test needs to fill in.
     const context = await browser.newContext({ storageState: undefined });
     const loginPage = await context.newPage();
     await loginPage.goto("/login");

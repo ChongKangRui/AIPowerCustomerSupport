@@ -7,11 +7,11 @@ import { Role, TicketStatus } from "@/lib/generated/prisma/enums";
 import type { TicketDetail } from "@/models/ticket.model";
 import type { UserListItem } from "@/models/user.model";
 
-// apiClient is mocked at the module boundary, same pattern as
-// tickets-view.test.tsx — TicketDetailView's own network access (via
-// hooks/use-ticket.ts and hooks/use-update-ticket-status.ts) goes through
-// this, so mocking here exercises the real hooks/React Query wiring instead
-// of stubbing them out.
+// apiClient is mocked at the module boundary, the same pattern
+// tickets-view.test.tsx uses. TicketDetailView's own network access,
+// through hooks/use-ticket.ts and hooks/use-update-ticket-status.ts,
+// goes through this mock. Mocking here exercises the real hooks and
+// React Query wiring instead of stubbing them out.
 const apiClientMocks = vi.hoisted(() => ({
   get: vi.fn(),
   post: vi.fn(),
@@ -45,15 +45,18 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-// TicketDetailView now also calls useCurrentUser() (GET /api/auth/session)
-// and useUsers() (GET /api/users) for the assign control's admin check and
-// agent list — apiClientMocks.get is one shared mock for every GET this
-// component makes, so it has to branch on the requested url instead of
-// blanket-resolving to the ticket shape (as it did before those hooks
-// existed) or the session/users calls would incorrectly resolve with
-// {id, subject, ...} and useCurrentUser would see `data.user` as undefined.
-// Defaults to isAdmin: false / agents: [] — every existing (pre-assignment)
-// test in this file relies on the assign control staying hidden.
+// TicketDetailView also calls useCurrentUser() (GET /api/auth/session)
+// and useUsers() (GET /api/users), for the assign control's admin check
+// and agent list. apiClientMocks.get is one shared mock for every GET
+// this component makes. It must branch on the requested url instead of
+// resolving every call to the ticket shape, the way it did before those
+// hooks existed. Without that branch, the session and users calls would
+// wrongly resolve with {id, subject, ...}, and useCurrentUser would see
+// `data.user` as undefined.
+//
+// Defaults to isAdmin: false and agents: []. Every test in this file
+// written before the assign feature relies on the assign control
+// staying hidden.
 function renderView(
   initialTicket: TicketDetail,
   { isAdmin = false, agents = [] }: { isAdmin?: boolean; agents?: UserListItem[] } = {}
@@ -81,15 +84,18 @@ function renderView(
   );
 }
 
-// Coverage for TicketDetailView's own orchestration logic: which status
-// actions render per ticket.status, the Close confirm-dialog flow, mutation
-// error display, the reply box's disabled-until-typed wiring (and that it's
-// genuinely unwired to any API call — see that component's own comment),
-// and the error state when the ticket fails to load. The header/conversation
-// rendering this wraps has its own dedicated tests
-// (ticket-detail-header.test.tsx, ticket-conversation.test.tsx); the real
-// GET/PATCH /api/tickets/[id] behavior (status codes, persisted transitions,
-// role-scoping) needs a real backend and stays in e2e.
+// This covers TicketDetailView's own orchestration logic: which status
+// actions render for each ticket.status, the Close confirm-dialog flow,
+// mutation error display, and the reply box's disabled-until-typed
+// wiring. The reply box also stays genuinely unwired to any API call;
+// see that component's own comment. This also covers the error state
+// when the ticket fails to load.
+//
+// The header and conversation rendering this component wraps has its
+// own dedicated tests (ticket-detail-header.test.tsx,
+// ticket-conversation.test.tsx). The real GET/PATCH /api/tickets/[id]
+// behavior — status codes, persisted transitions, role-scoping — needs
+// a real backend and stays in e2e.
 describe("TicketDetailView", () => {
   it("shows \"Failed to load ticket.\" when the ticket fails to load", async () => {
     apiClientMocks.get.mockImplementation(() => Promise.reject(new Error("network error")));
@@ -201,11 +207,12 @@ describe("TicketDetailView", () => {
     expect(await screen.findByText("Conflict")).toBeTruthy();
   });
 
-  // Which-control-renders-when is TicketDetailHeader's own job, covered by
-  // ticket-detail-header.test.tsx's "assign control" describe block against
-  // plain props — what's left to prove here is the piece a prop-driven test
-  // can't reach: that picking an agent actually flows through
-  // useAssignTicket into a real PATCH call and back.
+  // Which control renders when is TicketDetailHeader's own job.
+  // ticket-detail-header.test.tsx's "assign control" describe block
+  // already covers that, against plain props. What is left to prove
+  // here is the piece a prop-driven test cannot reach: that picking an
+  // agent actually flows through useAssignTicket into a real PATCH call
+  // and back.
   describe("assigning a ticket (admin only)", () => {
     const agents: UserListItem[] = [
       { id: "agent-1", name: "Grace Hopper", email: "grace@example.com", role: Role.AGENT, createdAt: "" },
@@ -218,8 +225,8 @@ describe("TicketDetailView", () => {
       renderView(ticket({ status: TicketStatus.OPEN, assignedTo: null }), { isAdmin: true, agents });
 
       const trigger = await screen.findByRole("button", { name: /Unassigned/ });
-      // Radix's DropdownMenuTrigger opens on pointerdown, not click — see
-      // ticket-detail-header.test.tsx's "assign control" describe block.
+      // Radix's DropdownMenuTrigger opens on pointerdown, not click.
+      // See ticket-detail-header.test.tsx's "assign control" describe block.
       fireEvent.pointerDown(trigger, { button: 0 });
       fireEvent.click(await screen.findByRole("menuitemradio", { name: "Grace Hopper" }));
 

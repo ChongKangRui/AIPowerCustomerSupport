@@ -7,36 +7,40 @@ import { ADMIN_STORAGE_STATE } from "./storage-state";
 // components/users/delete-user-dialog.tsx (rendered per-row in
 // components/users/users-table.tsx, next to EditUserDialog), backed by
 // hooks/use-delete-user.ts and DELETE /api/users/[id]
-// (app/api/users/[id]/route.ts). Read-only listing/access-control coverage
-// lives in e2e/users.spec.ts; create/edit flows live in their own sibling
-// files — this file is scoped to delete-specific behavior: the confirmation
-// dialog (cancel vs confirm), the live-table removal + login lockout that
-// prove the soft-delete actually took effect, the "admins can never be
-// deleted" guarantee (UI + API), and the permanent-email-uniqueness
-// regression (an email is reserved forever once used, even by a
-// soft-deleted row — see prisma/schema.prisma's User.email comment).
+// (app/api/users/[id]/route.ts).
 //
-// Every test loads the shared ADMIN storageState snapshot (e2e/auth.setup.ts)
-// rather than driving a UI login for the *admin* steps — the login flow
-// itself is covered by e2e/login.spec.ts. The login-lockout test does drive a
-// real UI login, but only as a black-box way to prove the soft-deleted user's
-// credentials stop working server-side (there's no other way to observe that
-// from a spec).
+// Read-only listing/access-control coverage lives in e2e/users.spec.ts;
+// create/edit flows live in their own sibling files. This file is scoped
+// to delete-specific behavior: the confirmation dialog (cancel vs
+// confirm), the live-table removal + login lockout that prove the
+// soft-delete actually took effect, the "admins can never be deleted"
+// guarantee (UI + API), and the permanent-email-uniqueness regression —
+// an email is reserved forever once used, even by a soft-deleted row, see
+// prisma/schema.prisma's User.email comment.
+//
+// Every test loads the shared ADMIN storageState snapshot
+// (e2e/auth.setup.ts) rather than driving a UI login for the *admin*
+// steps — the login flow itself is covered by e2e/login.spec.ts. The
+// login-lockout test does drive a real UI login, but only as a black-box
+// way to prove the soft-deleted user's credentials stop working
+// server-side — there's no other way to observe that from a spec.
 //
 // Shared-state isolation: fullyParallel workers share one test DB that's
 // reset only once for the whole suite run (e2e/global-setup.ts), so every
-// test here creates its own throwaway user (via the existing "New user"
-// dialog, with an email unique to the attempt — Date.now() appended in
+// test here creates its own throwaway user — via the existing "New user"
+// dialog, with an email unique to the attempt, Date.now() appended in
 // addition to test.info().testId, same reasoning as
-// e2e/admin-create-user.spec.ts's top-of-file comment) and only ever deletes
-// that row, never the seeded AGENT fixture other specs rely on. The one
-// deliberate exception is the "admins can't be deleted" test, which reads
-// (never mutates) the seeded ADMIN's own row/id — safe by construction since
-// the feature itself is what's supposed to prevent any mutation, but that
-// test still asserts the UI button is disabled *before* ever attempting the
-// direct API bypass, and treats anything other than a 403 from that bypass as
-// a hard failure, so a hypothetical bug here can't silently delete the shared
-// admin and cascade into breaking every other spec.
+// e2e/admin-create-user.spec.ts's top-of-file comment — and only ever
+// deletes that row, never the seeded AGENT fixture other specs rely on.
+//
+// The one deliberate exception is the "admins can't be deleted" test,
+// which reads (never mutates) the seeded ADMIN's own row/id. That's safe
+// by construction, since the feature itself is what's supposed to
+// prevent any mutation — but that test still asserts the UI button is
+// disabled *before* ever attempting the direct API bypass, and treats
+// anything other than a 403 from that bypass as a hard failure, so a
+// hypothetical bug here can't silently delete the shared admin and
+// cascade into breaking every other spec.
 
 async function createUserViaUi(
   page: Page,
@@ -182,13 +186,14 @@ test.describe("admin deleting a user from /users", () => {
     await expect(deleteDialog).toBeHidden();
     await expect(originalRow).toBeHidden();
 
-    // Same exact email, brand-new user — must fail. User.email is @unique in
-    // the schema regardless of deletedAt (see prisma/schema.prisma's comment
-    // on that field), and app/api/users/route.ts's POST conflict check is a
-    // plain findUnique({ where: { email } }) with no deletedAt filter, so
-    // this hits the same 409 the duplicate-email tests elsewhere assert on
-    // (e.g. e2e/admin-create-user.spec.ts's "shows the server's 409 error for
-    // a duplicate email" test) even though the original row is soft-deleted.
+    // Same exact email, brand-new user — must fail. User.email is @unique
+    // in the schema regardless of deletedAt (see prisma/schema.prisma's
+    // comment on that field), and app/api/users/route.ts's POST conflict
+    // check is a plain findUnique({ where: { email } }) with no deletedAt
+    // filter. So this hits the same 409 the duplicate-email tests
+    // elsewhere assert on (e.g. e2e/admin-create-user.spec.ts's "shows
+    // the server's 409 error for a duplicate email" test), even though
+    // the original row is soft-deleted.
     await page.getByRole("button", { name: "New user" }).click();
     const createDialog = page.getByRole("dialog", { name: "New user" });
     await createDialog.getByLabel("Name").fill(newName);

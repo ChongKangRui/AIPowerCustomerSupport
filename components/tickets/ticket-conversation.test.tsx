@@ -41,11 +41,12 @@ function ticket(overrides: Partial<TicketDetail>): TicketDetail {
   };
 }
 
-// TicketConversation is pure/presentational — driven entirely by the
-// `ticket` prop (message list + the customerName/customerEmail it derives
-// the CUSTOMER author label from), no data fetching — so its per-authorType
-// label logic and empty state are cheap to cover directly, same rationale
-// as tickets-table.test.tsx covering TicketsTable's fallback rules.
+// TicketConversation is pure and presentational. The `ticket` prop
+// drives it entirely: the message list, plus the customerName and
+// customerEmail it derives the CUSTOMER author label from. It does no
+// data fetching. That makes its per-authorType label logic and empty
+// state cheap to cover directly, the same reasoning tickets-table.test.tsx
+// uses for TicketsTable's fallback rules.
 describe("TicketConversation", () => {
   it("renders \"No messages yet.\" when the thread is empty", () => {
     render(<TicketConversation ticket={ticket({ messages: [] })} />);

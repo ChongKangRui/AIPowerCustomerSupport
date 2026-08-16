@@ -7,12 +7,14 @@ import {
   updateTicketStatusSchema,
 } from "@/models/ticket.model";
 
-// ticketListQuerySchema is the shared source of truth for GET /api/tickets'
-// query-param validation and tickets-view.tsx's client-side parse of the
-// same URLSearchParams — see that schema's own comment. Its .catch()
-// fallbacks (rather than a thrown ZodError) are the behavior under test
-// here: page/sortBy/sortDir are view state a user can freely hand-edit into
-// the URL, so a bad value should silently degrade to a default, not error.
+// ticketListQuerySchema is the shared source of truth for GET
+// /api/tickets' query-param validation and for tickets-view.tsx's
+// client-side parse of the same URLSearchParams. See that schema's own
+// comment.
+//
+// This tests its .catch() fallbacks, not a thrown ZodError. page,
+// sortBy, and sortDir are view state a user can freely hand-edit into
+// the URL. A bad value should silently degrade to a default, not error.
 describe("ticketListQuerySchema", () => {
   it("defaults page/sortBy/sortDir/status/q when all params are omitted", () => {
     const result = ticketListQuerySchema.parse({});
@@ -97,14 +99,17 @@ describe("ticketListQuerySchema", () => {
   });
 });
 
-// updateTicketStatusSchema is PATCH /api/tickets/[id]'s body validator — a
-// mutation payload, not view state, so unlike ticketListQuerySchema above it
-// has no .catch() fallback: bad input must throw (→ the route's automatic
-// ZodError-to-400 handling in lib/api-handler.ts), not silently degrade. The
-// actual OPEN/RESOLVED/CLOSED transition *legality* (e.g. can't move a
-// CLOSED ticket anywhere) is a separate, DB-dependent concern
-// (app/api/tickets/[id]/route.ts's ALLOWED_TRANSITIONS) covered by e2e, not
-// here — this only covers "is this a well-shaped request body at all".
+// updateTicketStatusSchema is PATCH /api/tickets/[id]'s body validator,
+// a mutation payload, not view state. So unlike ticketListQuerySchema
+// above, it has no .catch() fallback. Bad input must throw, which
+// triggers the route's automatic ZodError-to-400 handling in
+// lib/api-handler.ts, instead of silently degrading.
+//
+// The actual OPEN/RESOLVED/CLOSED transition legality — for example,
+// that a CLOSED ticket cannot move anywhere — is a separate,
+// DB-dependent concern (app/api/tickets/[id]/route.ts's
+// ALLOWED_TRANSITIONS). e2e covers that, not this file. This file
+// covers only "is this a well-shaped request body at all."
 describe("updateTicketStatusSchema", () => {
   it.each(["RESOLVED", "CLOSED"] as const)("accepts %s as a valid status", (status) => {
     const result = updateTicketStatusSchema.parse({ status });
@@ -125,12 +130,15 @@ describe("updateTicketStatusSchema", () => {
   });
 });
 
-// assignTicketSchema/bulkAssignTicketsSchema are PATCH /api/tickets/[id]/assign
-// and PATCH /api/tickets/assign's body validators — mutation payloads, so (same
-// reasoning as updateTicketStatusSchema above) bad input must throw, not
-// silently degrade. Admin-only/OPEN-only eligibility is DB-dependent and
-// covered by e2e, not here — this only covers "is this a well-shaped request
-// body at all".
+// assignTicketSchema and bulkAssignTicketsSchema are PATCH
+// /api/tickets/[id]/assign and PATCH /api/tickets/assign's body
+// validators. They are mutation payloads, so the same reasoning as
+// updateTicketStatusSchema above applies: bad input must throw, not
+// silently degrade.
+//
+// Admin-only and OPEN-only eligibility is DB-dependent, and e2e covers
+// that, not this file. This file covers only "is this a well-shaped
+// request body at all."
 describe("assignTicketSchema", () => {
   it("accepts a non-empty assignedToId", () => {
     const result = assignTicketSchema.parse({ assignedToId: "user-1" });

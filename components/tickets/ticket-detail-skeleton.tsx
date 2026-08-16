@@ -1,8 +1,7 @@
 import { Skeleton } from "@/components/ui/skeleton";
 
-// Loading fallback for ticket-detail-view.tsx while useTicket() is pending —
-// same Skeleton-block approach as tickets-table-skeleton.tsx, shaped to this
-// page's header + conversation-thread layout instead of a table.
+// This is the loading fallback for ticket-detail-view.tsx while useTicket() is pending.
+// It uses the same Skeleton-block approach as tickets-table-skeleton.tsx, shaped to this page's header and conversation-thread layout instead of a table.
 export function TicketDetailSkeleton() {
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-10">

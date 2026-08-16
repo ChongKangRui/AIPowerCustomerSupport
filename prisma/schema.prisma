@@ -46,9 +46,11 @@ model User {
   id            String    @id @default(cuid())
   name          String?
   // Permanently unique, even across a soft-deleted row — an email is
-  // reserved forever once used, deleted or not (deliberate: see
-  // implementation-plan.md). Only login and the admin list filter on
-  // deletedAt; create/edit's conflict checks don't.
+  // reserved forever once used, deleted or not. Deliberate, see
+  // implementation-plan.md.
+  //
+  // Only login and the admin list filter on deletedAt; create/edit's
+  // conflict checks don't.
   email         String    @unique
   emailVerified DateTime?
   image         String?
@@ -57,9 +59,9 @@ model User {
   passwordHash String?
   role         Role   @default(AGENT)
 
-  /// Soft-delete marker. Null = active. Set = deleted; row is never
+  /// Soft-delete marker. Null = active, set = deleted. The row is never
   /// mutated otherwise, so historical Ticket/TicketMessage references
-  /// (assignedTo/author) keep resolving. See email's comment above.
+  /// (assignedTo/author) keep resolving — see email's comment above.
   deletedAt DateTime?
 
   accounts Account[]
@@ -194,10 +196,12 @@ model EmailSyncState {
   lastPolledAt  DateTime @updatedAt
 }
 
-/// Storage table for `rate-limiter-flexible`'s RateLimiterPrisma (lib/rate-limiter.ts).
-/// Shape (key/points/expire) and model name are fixed by that library — see
-/// its Prisma driver docs. Backs login brute-force protection on
-/// /api/login; no Redis needed since it reuses this Postgres connection.
+/// Storage table for `rate-limiter-flexible`'s RateLimiterPrisma
+/// (lib/rate-limiter.ts). Shape (key/points/expire) and model name are
+/// fixed by that library — see its Prisma driver docs.
+///
+/// Backs login brute-force protection on /api/login. No Redis needed,
+/// since it reuses this Postgres connection.
 model RateLimiterFlexible {
   key    String    @id
   points Int

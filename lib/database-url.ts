@@ -1,26 +1,25 @@
-/**
- * Resolves the Postgres connection string Prisma should use.
- *
- * - Production (Vercel + Neon): `DATABASE_URL` is set directly and wins as-is.
- * - Local development: built here from DB_HOST/DB_PORT/DB_USER/DB_PASSWORD/
- *   DB_NAME instead of embedding the password inside a single DATABASE_URL
- *   string.
- *
- * Why not just write `DATABASE_URL="postgresql://postgres:$DB_PASSWORD@..."`
- * in .env? Next.js's own env loader expands `$VAR` references like that
- * (see "Referencing Other Variables" in its env docs), but the Prisma CLI
- * (`prisma migrate dev`, `prisma studio`, `db:seed`) loads .env itself via
- * plain `dotenv`, which does NOT expand `$VAR` — the connection string would
- * work under `next dev` and silently break under every Prisma CLI command
- * (DB_PASSWORD would end up literally in the URL as the four characters
- * `$DB_PASSWORD`). Building the URL here in code sidesteps that inconsistency
- * entirely: both prisma.config.ts and lib/prisma.ts call this function
- * instead of reading `process.env.DATABASE_URL` directly.
- */
-// Builds a local Postgres connection string from the DB_HOST/DB_PORT/DB_USER/
-// DB_PASSWORD pieces, pointed at whichever `database` name is passed in.
-// Shared by resolveDatabaseUrl and resolveTestDatabaseUrl below so the
-// credential-handling (and its error message) only lives in one place.
+// This file resolves the Postgres connection string Prisma uses.
+// In production (Vercel + Neon), `DATABASE_URL` is set directly and wins
+// as-is. Locally, the code below builds the URL from separate
+// DB_HOST/DB_PORT/DB_USER/DB_PASSWORD/DB_NAME pieces instead.
+
+// Why not just write `DATABASE_URL="postgresql://postgres:$DB_PASSWORD@..."`
+// in .env? Next.js's env loader expands `$VAR` references like that (see
+// "Referencing Other Variables" in its env docs). The Prisma CLI
+// (`prisma migrate dev`, `prisma studio`, `db:seed`) loads .env through
+// plain `dotenv` instead, and `dotenv` does NOT expand `$VAR`.
+//
+// That mismatch breaks the connection string under the Prisma CLI. It
+// would work under `next dev`, but DB_PASSWORD would end up in the URL
+// as the literal four characters `$DB_PASSWORD` everywhere else.
+//
+// Building the URL here in code avoids that problem. Both
+// prisma.config.ts and lib/prisma.ts call this function instead of
+// reading `process.env.DATABASE_URL` directly.
+//
+// resolveDatabaseUrl and resolveTestDatabaseUrl below both call this
+// function, so the credential handling (and its error message) lives in
+// one place.
 function buildLocalUrl(database: string): string {
   const host = process.env.DB_HOST ?? "localhost";
   const port = process.env.DB_PORT ?? "5432";
@@ -34,11 +33,13 @@ function buildLocalUrl(database: string): string {
     );
   }
 
-  // encodeURIComponent so a password containing @, :, / etc. doesn't corrupt the URL.
+  // encodeURIComponent stops special characters (@, :, /) in the password from breaking the URL.
   const credentials = `${encodeURIComponent(user)}:${encodeURIComponent(password)}`;
   return `postgresql://${credentials}@${host}:${port}/${database}`;
 }
 
+// Returns DATABASE_URL as-is if it is set (production). Otherwise falls
+// back to the local URL built by buildLocalUrl above.
 export function resolveDatabaseUrl(): string {
   if (process.env.DATABASE_URL) {
     return process.env.DATABASE_URL;
@@ -48,13 +49,13 @@ export function resolveDatabaseUrl(): string {
 }
 
 /**
- * Same resolution as resolveDatabaseUrl, but for the separate database
- * Playwright e2e tests run against (see playwright.config.ts + e2e/global-setup.ts)
- * so tests never touch dev/production data.
+ * Resolves the connection string for the separate database Playwright
+ * e2e tests use. See playwright.config.ts and e2e/global-setup.ts. Tests
+ * never touch dev or production data.
  *
- * - same precedence rule as `DATABASE_URL` in resolveDatabaseUrl.
- * - built from the same local DB_HOST/DB_PORT/DB_USER/DB_PASSWORD
- *   
+ * - Uses the same precedence rule as `DATABASE_URL` in resolveDatabaseUrl.
+ * - Builds the URL from the same local DB_HOST/DB_PORT/DB_USER/DB_PASSWORD
+ *   pieces.
  */
 export function resolveTestDatabaseUrl(): string {
   if (process.env.DATABASE_URL_TEST) {
@@ -65,20 +66,24 @@ export function resolveTestDatabaseUrl(): string {
 }
 
 /**
- * The test database's name, for the one-time "does it exist yet" check in
- * e2e/global-setup.ts. Returns null when `DATABASE_URL_TEST` is set directly —
- * in that case we don't know (or need to know) the database name, and assume
- * whatever it points to has already been provisioned.
+ * The test database name. Used by the one-time "does it exist yet" check
+ * in e2e/global-setup.ts.
+ *
+ * This always builds the name from DB_NAME. It does not check whether
+ * `DATABASE_URL_TEST` is set.
  */
 export function resolveTestDatabaseName(): string {
   return `${process.env.DB_NAME ?? "CustomerSupportDB"}_test`;
 }
 
 /**
- * Connection string for Postgres's default `postgres` maintenance database —
- * used only to run `CREATE DATABASE` for the test database itself (you can't
- * create a database while connected to it). Local pieces only; not meaningful
- * when `DATABASE_URL_TEST` points at an already-provisioned cloud database.
+ * Connection string for Postgres's default `postgres` maintenance
+ * database.
+ *
+ * Used only to run `CREATE DATABASE` for the test database itself. You
+ * cannot create a database while connected to it. Built from local
+ * pieces only. Not meaningful when `DATABASE_URL_TEST` points at an
+ * already-provisioned cloud database.
  */
 export function resolveMaintenanceDatabaseUrl(): string {
   return buildLocalUrl("postgres");

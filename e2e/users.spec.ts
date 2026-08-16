@@ -5,35 +5,36 @@ import { ADMIN, AGENT } from "./seeded-users";
 import { ADMIN_STORAGE_STATE, AGENT_STORAGE_STATE } from "./storage-state";
 
 // Coverage for the admin-only "Users" feature: app/(main)/users/page.tsx,
-// components/users/users-view.tsx + users-table.tsx, hooks/use-users.ts, and
-// GET/POST /api/users (app/api/users/route.ts).
+// components/users/users-view.tsx + users-table.tsx, hooks/use-users.ts,
+// and GET/POST /api/users (app/api/users/route.ts).
 //
-// Everything in *this file* is read-only (listing and access control —
-// including POST /api/users' access control, which is exercised here rather
-// than duplicated elsewhere), so nothing here writes rows another parallel
-// test could race on, and every test loads a shared storageState snapshot
-// (e2e/auth.setup.ts) rather than logging in through the UI. The "New user"
-// dialog's actual create flow (validation, success, duplicate-email) does
-// write rows and lives in its own file, e2e/admin-create-user.spec.ts, with
-// its own isolation notes.
+// Everything in *this file* is read-only — listing and access control,
+// including POST /api/users' access control, which is exercised here
+// rather than duplicated elsewhere. So nothing here writes rows another
+// parallel test could race on, and every test loads a shared storageState
+// snapshot (e2e/auth.setup.ts) rather than logging in through the UI. The
+// "New user" dialog's actual create flow (validation, success,
+// duplicate-email) does write rows and lives in its own file,
+// e2e/admin-create-user.spec.ts, with its own isolation notes.
 //
-// The search/role-filter tests that used to live here (typing an email into
-// "Search users" narrowing the table, picking a role from "Filter by role")
-// have moved to components/users/users-view.test.tsx, which covers the same
-// wiring against an in-memory fixture list instead of real seeded/
-// authenticated DB rows. The underlying filter *logic* itself (case-
-// insensitivity, combining search + role, null-name handling) already has
-// its own exhaustive unit coverage in components/users/filter-users.test.ts.
-// What stays here — "sees the seeded admin and agent among the listed
-// users" — is the one test that still needs a real GET /api/users round
-// trip against actual seeded, authenticated data to mean anything.
+// The search/role-filter tests that used to live here — typing an email
+// into "Search users" narrowing the table, picking a role from "Filter by
+// role" — have moved to components/users/users-view.test.tsx, which
+// covers the same wiring against an in-memory fixture list instead of
+// real seeded/authenticated DB rows. The underlying filter *logic* itself
+// (case-insensitivity, combining search + role, null-name handling)
+// already has its own exhaustive unit coverage in
+// components/users/filter-users.test.ts. What stays here — "sees the
+// seeded admin and agent among the listed users" — is the one test that
+// still needs a real GET /api/users round trip against actual seeded,
+// authenticated data to mean anything.
 //
-// The page-level admin-vs-agent redirect is also spot-checked (more briefly)
-// in e2e/session-redirect.spec.ts alongside the rest of that file's
-// proxy.ts/callbackUrl coverage; the "access control" describe below is the
-// canonical, feature-scoped version of that same check plus the
-// proxy.ts-level unauthenticated redirect, which nothing else asserts
-// specifically for /users.
+// The page-level admin-vs-agent redirect is also spot-checked (more
+// briefly) in e2e/session-redirect.spec.ts alongside the rest of that
+// file's proxy.ts/callbackUrl coverage. The "access control" describe
+// below is the canonical, feature-scoped version of that same check plus
+// the proxy.ts-level unauthenticated redirect, which nothing else
+// asserts specifically for /users.
 
 test.describe("admin viewing the users list", () => {
   test.use({ storageState: ADMIN_STORAGE_STATE });
@@ -118,10 +119,12 @@ test.describe("GET /api/users", () => {
 
 test.describe("POST /api/users", () => {
   // Access control only — same "own entry point, must be authoritative on
-  // its own" auth check as GET (app/api/users/route.ts). The success/
-  // validation/conflict paths for an authorized admin are covered through
-  // the real "New user" UI in e2e/admin-create-user.spec.ts, not repeated
-  // here as a raw API call, so this never itself creates a row.
+  // its own" auth check as GET (app/api/users/route.ts).
+  //
+  // The success/validation/conflict paths for an authorized admin are
+  // covered through the real "New user" UI in
+  // e2e/admin-create-user.spec.ts, not repeated here as a raw API call,
+  // so this never itself creates a row.
   const body = {
     name: "Should Not Be Created",
     email: "unauthorized-attempt@example.com",

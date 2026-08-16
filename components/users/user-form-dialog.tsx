@@ -32,18 +32,18 @@ type UserFormDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   trigger: React.ReactNode;
-  /** Omit to create a new user; pass the row being edited to edit it. */
+  /** Omit to create a new user. Pass the row being edited to edit it. */
   user?: UserListItem;
 };
 
-// The actual "user form" dialog, shared by the "New user" button
-// (components/users/create-user-dialog.tsx) and each row's edit button
-// (components/users/edit-user-dialog.tsx) — both are thin wrappers that only
-// own a trigger element + open state and hand them to this component, which
-// owns the Dialog/form itself. The two triggers are structurally different
-// enough (a static toolbar button vs. a per-row icon button) that unifying
-// them too wasn't worth it, but the form mechanics are identical modulo a
-// few bits of copy/validation/mutation swapped by mode.
+// This is the actual "user form" dialog.
+// The "New user" button (components/users/create-user-dialog.tsx) and each row's edit button (components/users/edit-user-dialog.tsx) share it.
+// Both are thin wrappers. They only own a trigger element and open state, and hand those to this component.
+// This component owns the Dialog and the form itself.
+//
+// The two triggers are structurally different: a static toolbar button versus a per-row icon button.
+// Unifying them too was not worth it.
+// But the form mechanics are identical, apart from a few bits of copy, validation, and mutation swapped by mode.
 export function UserFormDialog({ open, onOpenChange, trigger, user }: UserFormDialogProps) {
   const isEdit = user !== undefined;
 
@@ -52,13 +52,12 @@ export function UserFormDialog({ open, onOpenChange, trigger, user }: UserFormDi
     defaultValues: user ? valuesFromUser(user) : BLANK_VALUES,
   });
 
-  // Both mutations are always called — never picked with a conditional hook
-  // call like `isEdit ? useUpdateUser() : useCreateUser()`, which would trip
-  // react-hooks/rules-of-hooks (the linter can't prove a given instance's
-  // isEdit never changes, even though in practice each wrapper below only
-  // ever passes one fixed value). useUpdateUser()'s own useCurrentUser()
-  // call is just a subscription to an already-warm ["session"] query, so
-  // calling it even in create mode costs nothing extra.
+  // Both mutations are always called here.
+  // A conditional hook call like `isEdit ? useUpdateUser() : useCreateUser()` would break react-hooks/rules-of-hooks.
+  // The linter cannot prove that a given instance's isEdit never changes, even though each wrapper below only ever passes one fixed value in practice.
+  //
+  // useUpdateUser()'s own useCurrentUser() call just subscribes to an already-warm ["session"] query.
+  // So calling it even in create mode costs nothing extra.
   const createUserMutation = useCreateUser();
   const updateUserMutation = useUpdateUser();
   const mutation = isEdit ? updateUserMutation : createUserMutation;
@@ -76,14 +75,14 @@ export function UserFormDialog({ open, onOpenChange, trigger, user }: UserFormDi
     }
   }
 
-  // Reset form + mutation state whenever the dialog closes (Cancel, overlay
-  // click, Escape) so reopening it always starts clean. Also reset *on
-  // open*, not just once at mount: RHF's defaultValues is a mount-time
-  // snapshot, but an edit dialog is a long-lived per-row instance (see
-  // edit-user-dialog.tsx) whose underlying user data can change while it's
-  // closed (e.g. another admin edits the same row, refetching ["users"]) —
-  // resetting on every open picks up whatever's current instead of what was
-  // true whenever this component first mounted.
+  // This resets the form and mutation state whenever the dialog closes: Cancel, an overlay click, or Escape.
+  // Reopening it then always starts clean.
+  //
+  // This also resets on open, not just once at mount.
+  // RHF's defaultValues is a mount-time snapshot.
+  // But an edit dialog is a long-lived per-row instance (see edit-user-dialog.tsx), and its underlying user data can change while it is closed.
+  // One example: another admin edits the same row, which refetches ["users"].
+  // Resetting on every open picks up whatever is current, instead of what was true when this component first mounted.
   function handleOpenChange(nextOpen: boolean) {
     onOpenChange(nextOpen);
     if (nextOpen) {
