@@ -6,7 +6,7 @@ import type { gmail_v1 } from "googleapis";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/lib/generated/prisma/client";
-import { MessageAuthorType, MessageDirection } from "@/lib/generated/prisma/enums";
+import { MessageAuthorType, MessageDirection, TicketStatus } from "@/lib/generated/prisma/enums";
 
 // ---------------------------------------------------------------------------
 // Client
@@ -126,6 +126,69 @@ function extractBodyText(payload: gmail_v1.Schema$MessagePart | undefined): stri
   return htmlParts.join("\n").trim();
 }
 
+// A reply from an email client (Gmail, Outlook, Apple Mail, ...) doesn't
+// contain just the new text — the client auto-appends everything it's
+// replying to underneath, quoted. Left unstripped, that means every
+// TicketMessage body from here on would re-embed the *entire* prior
+// conversation, growing without bound (and, concretely, the reopen-on-reply
+// flow in processMessage() below would show our own "ticket marked
+// resolved" email quoted back inside the customer's own reply). This is a
+// best-effort heuristic, not a full parser — good enough for the common
+// clients, not guaranteed for every possible mail client's quoting style:
+//
+// 1. Outlook's plain-text quoting has no "> " prefix at all, just a literal
+//    "-----Original Message-----" marker line — cut there if found.
+// 2. Everyone else (Gmail, Apple Mail, Yahoo, ...) prefixes each quoted
+//    line with "> ", preceded by a *blank* line and then one localized
+//    header line ("On ... wrote:", "... 写道：", "... a écrit :"). Rather
+//    than enumerate every language, this keys off what they all share: it's
+//    the nearest non-blank line above the first "> " line, and it ends in a
+//    colon (ASCII or full-width).
+// 3. Gmail can also ship a reply with its quoted-history expander left
+//    collapsed — the header line makes it into the plain-text body with no
+//    "> " block under it at all (this is what a live test against the demo
+//    inbox surfaced: a reply body of just "ok" followed by the bare "<addr>
+//    ... wrote:" line, nothing quoted after it). Same colon check, just
+//    anchored at the end of the message instead of at a quote block.
+// Falls back to the untouched body if none of this is found, or if
+// stripping would leave nothing behind (a reply that's 100% quote with no
+// header line we can identify) — never return an empty message body.
+// Exported for lib/gmail.test.ts — pure string-in/string-out logic, no
+// Gmail API or DB involved, so it's unit-testable directly rather than only
+// indirectly through parseGmailMessage().
+export function stripQuotedReply(bodyText: string): string {
+  const lines = bodyText.split(/\r\n|\r|\n/);
+
+  const originalMessageIndex = lines.findIndex((line) =>
+    /^-{2,}\s*original message\s*-{2,}$/i.test(line.trim())
+  );
+  if (originalMessageIndex !== -1) {
+    return lines.slice(0, originalMessageIndex).join("\n").trim() || bodyText.trim();
+  }
+
+  const firstQuoteIndex = lines.findIndex((line) => line.trim().startsWith(">"));
+  // Search for a colon-terminated header line backward from the first "> "
+  // line, or — if there's no quote block at all — from the very end of the
+  // message, skipping any blank lines in between (Gmail's plain-text output
+  // always puts at least one blank line between the header and what
+  // follows it).
+  const searchFrom = firstQuoteIndex === -1 ? lines.length : firstQuoteIndex;
+  let headerIndex = searchFrom - 1;
+  while (headerIndex >= 0 && lines[headerIndex].trim() === "") headerIndex--;
+  const isHeaderLine = headerIndex >= 0 && /[:：]$/.test(lines[headerIndex].trim());
+
+  let cutoff: number;
+  if (isHeaderLine) {
+    cutoff = headerIndex;
+  } else if (firstQuoteIndex !== -1) {
+    cutoff = firstQuoteIndex;
+  } else {
+    return bodyText.trim();
+  }
+
+  return lines.slice(0, cutoff).join("\n").trim() || bodyText.trim();
+}
+
 export function parseGmailMessage(message: gmail_v1.Schema$Message): ParsedGmailMessage {
   const headers = message.payload?.headers ?? [];
   const fromRaw = getHeader(headers, "From") ?? "";
@@ -138,7 +201,7 @@ export function parseGmailMessage(message: gmail_v1.Schema$Message): ParsedGmail
     fromEmail,
     fromName,
     subject: getHeader(headers, "Subject") ?? "(no subject)",
-    bodyText: extractBodyText(message.payload),
+    bodyText: stripQuotedReply(extractBodyText(message.payload)),
     rfcMessageId: getHeader(headers, "Message-Id") ?? getHeader(headers, "Message-ID"),
     inReplyTo: getHeader(headers, "In-Reply-To"),
     isSelfSent: (message.labelIds ?? []).includes("SENT") || fromEmail === gmailUser,
@@ -156,6 +219,10 @@ export type PollStats = {
   skippedSelfSent: number;
   /** History referenced a message that's since gone (deleted, Chat label, etc). */
   skippedNotFound: number;
+  /** Customer replied to a RESOLVED ticket — reopened to OPEN (see project-scope.md). */
+  ticketsReopened: number;
+  /** Customer replied to a CLOSED ticket — dropped silently, no ticket/message/email. */
+  ignoredClosedReplies: number;
 };
 
 function isUniqueConstraintError(error: unknown): boolean {
@@ -212,8 +279,22 @@ async function processMessage(messageId: string, stats: PollStats): Promise<void
       where: { gmailThreadId: parsed.threadId },
     });
 
-    if (existingTicket) {
-      await prisma.ticketMessage.create({
+    if (existingTicket && existingTicket.status === TicketStatus.CLOSED) {
+      // Closed is terminal (project-scope.md) — and the agent's Close
+      // action already emailed the customer up front that replies aren't
+      // monitored (see lib/ticket-lifecycle-emails.ts's buildClosedEmailBody
+      // and app/api/tickets/[id]/route.ts). Sending a fresh "still closed"
+      // bounce on every subsequent reply would just repeat that same
+      // notice, so a later reply on a closed thread is simply dropped: no
+      // TicketMessage, no ticket touched, no email.
+      stats.ignoredClosedReplies++;
+      logger.info(
+        { threadId: parsed.threadId, ticketId: existingTicket.id },
+        "Inbound reply to a closed ticket ignored"
+      );
+    } else if (existingTicket) {
+      const isReopen = existingTicket.status === TicketStatus.RESOLVED;
+      const messageCreate = prisma.ticketMessage.create({
         data: {
           ticketId: existingTicket.id,
           direction: MessageDirection.INBOUND,
@@ -224,6 +305,29 @@ async function processMessage(messageId: string, stats: PollStats): Promise<void
           inReplyTo: parsed.inReplyTo,
         },
       });
+
+      if (isReopen) {
+        // Customer replied to a RESOLVED ticket — reopen to OPEN per
+        // project-scope.md, atomically with appending their message.
+        // Leaves assignedToId/resolvedAt untouched: no round-robin/
+        // notification system exists yet (Phase 4/5), so keeping the
+        // previous assignee is the lightest "route to a human" available
+        // now — it just shows back up as OPEN in their queue.
+        await prisma.$transaction([
+          messageCreate,
+          prisma.ticket.update({
+            where: { id: existingTicket.id },
+            data: { status: TicketStatus.OPEN },
+          }),
+        ]);
+        stats.ticketsReopened++;
+        logger.info(
+          { threadId: parsed.threadId, ticketId: existingTicket.id },
+          "Reopened ticket after customer reply to a resolved ticket"
+        );
+      } else {
+        await messageCreate;
+      }
       stats.messagesAppended++;
     } else {
       await prisma.ticket.create({
@@ -282,6 +386,8 @@ export async function pollGmailAndCreateTickets(): Promise<PollStats> {
     messagesAppended: 0,
     skippedSelfSent: 0,
     skippedNotFound: 0,
+    ticketsReopened: 0,
+    ignoredClosedReplies: 0,
   };
 
   let pageToken: string | undefined;

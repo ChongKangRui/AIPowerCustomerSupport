@@ -55,6 +55,7 @@ export function TicketDetailView({ ticketId }: { ticketId: string }) {
   // hooks/use-users.ts's `enabled` param comment.
   const { users: agents } = useUsers({ enabled: isAdmin });
   const [closeDialogOpen, setCloseDialogOpen] = useState(false);
+  const [resolveDialogOpen, setResolveDialogOpen] = useState(false);
   const [replyText, setReplyText] = useState("");
 
   if (isLoading) return <TicketDetailSkeleton />;
@@ -67,6 +68,11 @@ export function TicketDetailView({ ticketId }: { ticketId: string }) {
     if (!nextOpen) updateStatus.reset();
   }
 
+  function handleResolveDialogChange(nextOpen: boolean) {
+    setResolveDialogOpen(nextOpen);
+    if (!nextOpen) updateStatus.reset();
+  }
+
   // Same preventDefault-then-manual-close pattern as
   // components/users/delete-user-dialog.tsx's handleDelete — AlertDialogAction
   // auto-closes on click otherwise, before the mutation (and its possible
@@ -74,6 +80,11 @@ export function TicketDetailView({ ticketId }: { ticketId: string }) {
   function handleClose(event: React.MouseEvent<HTMLButtonElement>) {
     event.preventDefault();
     updateStatus.mutate("CLOSED", { onSuccess: () => setCloseDialogOpen(false) });
+  }
+
+  function handleResolve(event: React.MouseEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    updateStatus.mutate("RESOLVED", { onSuccess: () => setResolveDialogOpen(false) });
   }
 
   return (
@@ -127,22 +138,40 @@ export function TicketDetailView({ ticketId }: { ticketId: string }) {
           </div>
 
           <div className="flex flex-col gap-3">
-            {updateStatus.error && (
-              <p role="alert" className="text-sm text-destructive">
-                {updateStatus.error.message}
-              </p>
-            )}
             <div className="flex gap-2">
               {ticket.status === TicketStatus.OPEN && (
-                <Button
-                  variant="secondary"
-                  disabled={updateStatus.isPending}
-                  onClick={() => updateStatus.mutate("RESOLVED")}
-                >
-                  {updateStatus.isPending && updateStatus.variables === "RESOLVED"
-                    ? "Marking Resolved…"
-                    : "Mark Resolved"}
-                </Button>
+                <AlertDialog open={resolveDialogOpen} onOpenChange={handleResolveDialogChange}>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="secondary" disabled={updateStatus.isPending}>
+                      Mark Resolved
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Mark this ticket resolved?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        The customer gets an automated email saying so. If they reply, this
+                        ticket reopens automatically and their reply is treated as a signal of
+                        dissatisfaction.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+
+                    {updateStatus.error && (
+                      <p role="alert" className="text-sm text-destructive">
+                        {updateStatus.error.message}
+                      </p>
+                    )}
+
+                    <AlertDialogFooter>
+                      <AlertDialogCancel disabled={updateStatus.isPending}>Cancel</AlertDialogCancel>
+                      <AlertDialogAction disabled={updateStatus.isPending} onClick={handleResolve}>
+                        {updateStatus.isPending && updateStatus.variables === "RESOLVED"
+                          ? "Marking Resolved…"
+                          : "Mark ticket resolved"}
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               )}
 
               <AlertDialog open={closeDialogOpen} onOpenChange={handleCloseDialogChange}>
@@ -155,7 +184,8 @@ export function TicketDetailView({ ticketId }: { ticketId: string }) {
                   <AlertDialogHeader>
                     <AlertDialogTitle>Close this ticket?</AlertDialogTitle>
                     <AlertDialogDescription>
-                      This is permanent — a closed ticket can&rsquo;t be reopened.
+                      This is permanent — a closed ticket can&rsquo;t be reopened. The customer
+                      gets an automated closing email and replies to it won&rsquo;t be monitored.
                     </AlertDialogDescription>
                   </AlertDialogHeader>
 

@@ -10,6 +10,8 @@ type PollStats = {
   messagesAppended: number;
   skippedSelfSent: number;
   skippedNotFound: number;
+  ticketsReopened: number;
+  ignoredClosedReplies: number;
 };
 
 // Tickets list toolbar's "Fetch Gmail" button (tickets-view.tsx). Mailbox-

@@ -25,7 +25,8 @@
   - If the customer replies to a `Resolved` ticket, it automatically reopens to `Open` and routes to a human agent.
   - The closing message sent to the customer must clearly state that replying will reopen the ticket and signals they're not satisfied with the resolution — sets expectations and discourages casual replies.
 - `Closed`: a human agent has explicitly ended the ticket. **Permanent/terminal** — cannot be reopened.
-  - If the customer replies to a `Closed` ticket, the reply is ignored and an automated bounce is sent back ("this ticket is closed, please submit a new request"). No new ticket is created from that reply. This is the abuse-prevention boundary.
+  - The Close action itself sends the customer an automated email up front stating the ticket is closed and replies won't be monitored.
+  - If the customer replies anyway, the reply is ignored silently — no new ticket, no message stored, no further email. A repeat "this is closed" bounce on every subsequent reply would just repeat what the Close email already said. This is the abuse-prevention boundary.
 
 ## AI Resolution Flow
 Two distinct, separate paths — not a single blended flow:

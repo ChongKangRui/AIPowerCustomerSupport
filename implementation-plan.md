@@ -83,10 +83,11 @@ Goal: tickets are fully manageable by a human, independent of AI.
 - [x] Manual agent actions on ticket detail: mark Resolved, mark Closed (permanent) — `PATCH /api/tickets/[id]` (`ALLOWED_TRANSITIONS` allow-list), `hooks/use-update-ticket-status.ts`
 - [x] Manual ticket assignment, admin-only, OPEN tickets only: single-ticket (ticket detail header) and bulk (tickets list toolbar + per-row) — `PATCH /api/tickets/[id]/assign` + `PATCH /api/tickets/assign` (bulk), `hooks/use-assign-ticket.ts` + `hooks/use-bulk-assign-tickets.ts`, `components/tickets/assign-menu.tsx` (shared dropdown, reused by both surfaces), row-selection added to `components/tickets/use-tickets-table.tsx` (TanStack v9 `rowSelectionFeature`, page/filter-scoped — resets on any page/sort/status/q change, not persisted across pages). Assignee pool is all Users (Admin + Agent), not Agent-only. This was manual/admin-driven scope, separate from the not-yet-built Phase 4 round-robin auto-assignment below.
 - [x] Manual agent reply on ticket detail, sent as a real outbound email — `POST /api/tickets/[id]/reply` (Agent-if-assigned/Admin-any scoping, `CLOSED` tickets rejected), `hooks/use-send-ticket-reply.ts`, wired into the Reply box in `components/tickets/ticket-detail-view.tsx`. Built alongside `sendGmailReply()` in Phase 2 above; see that section's e2e-test todo for the still-open real-inbox spot-check
-- [ ] Lifecycle rule: customer reply to a `RESOLVED` ticket → reopen to `OPEN`, notify/assign a human
-- [ ] Resolved-ticket closing message template: must state that replying reopens the ticket and signals dissatisfaction
-- [ ] Lifecycle rule: customer reply to a `CLOSED` ticket → ignore + send automated "ticket closed, submit a new request" bounce, no new ticket created
-- [ ] Wire these lifecycle rules into the Gmail inbound handler from Phase 2 (an inbound message on an existing thread must check the ticket's current status before deciding what to do)
+- [x] Manual Resolve/Close actions now also send a real, `SYSTEM`-authored automated email to the customer (`lib/ticket-lifecycle-emails.ts`'s `buildResolvedEmailBody`/`buildClosedEmailBody`, sent via the same `sendGmailReply()` the agent-reply route uses, wired into `app/api/tickets/[id]/route.ts`'s `PATCH` handler before the DB write). Close's email states replies won't be monitored; Resolve's states that replying reopens the ticket and counts as a dissatisfaction signal. Both surfaced via a confirmation `AlertDialog` in `components/tickets/ticket-detail-view.tsx` (Mark Resolved got one for the first time here, matching Close's existing dialog).
+- [x] Lifecycle rule: customer reply to a `RESOLVED` ticket → reopen to `OPEN` — `lib/gmail.ts`'s `processMessage()`, atomically appends the inbound message and flips status back to `OPEN` in one `prisma.$transaction`. "Notify/assign a human" is deliberately minimal for now: the previous `assignedToId` is left as-is (no round-robin/notification system exists yet — Phase 4/5), so it just resurfaces as `OPEN` in that agent's queue.
+- [x] Resolved-ticket closing message template: must state that replying reopens the ticket and signals dissatisfaction — see the Resolve email above, same item.
+- [x] Lifecycle rule: customer reply to a `CLOSED` ticket → ignored silently (no new ticket, no `TicketMessage`, no email) — deliberately *not* a bounce email as originally scoped here: since the Close action above now always emails the customer up front that replies aren't monitored, a repeat "still closed" bounce on every subsequent reply would just be repetitive noise. See `lib/gmail.ts`'s `processMessage()`.
+- [x] Wire these lifecycle rules into the Gmail inbound handler from Phase 2 (an inbound message on an existing thread must check the ticket's current status before deciding what to do) — done inside `processMessage()` itself, so it applies uniformly to all three callers (`scripts/poll-gmail.ts`, `app/api/cron/poll-gmail/route.ts`, `app/api/gmail/poll/route.ts`) with no per-caller changes. New `PollStats` counters: `ticketsReopened`, `ignoredClosedReplies`.
 
 ---
 
@@ -111,8 +112,11 @@ _Lower priority — see note at top._
 Goal: an agent knows when a ticket lands on their desk.
 
 - [ ] In-app notification indicator (e.g. badge/list) for newly assigned tickets
-- [ ] Email notification via Gmail API (non-threaded send) on assignment
-- [ ] Wire both into the Phase 4 round-robin assignment step
+- [ ] Wire it into the Phase 4 round-robin assignment step
+- ~~Email notification via Gmail API (non-threaded send) on assignment~~ — cut, one week out from
+  deadline. Seeded demo accounts use `admin@example.com`/`agent@example.com` (`.env.example`), not
+  real inboxes, so an email send would succeed but be unverifiable/unshowable in a demo. In-app is
+  strictly better here: less to build, and it's actually demonstrable.
 
 ---
 

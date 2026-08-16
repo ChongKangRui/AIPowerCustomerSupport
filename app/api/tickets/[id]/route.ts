@@ -2,8 +2,10 @@ import { NextResponse } from "next/server";
 
 import { ConflictError, NotFoundError, UnauthorizedError, withApiHandler } from "@/lib/api-handler";
 import { prisma } from "@/lib/prisma";
+import { sendGmailReply } from "@/lib/gmail";
 import { findScopedTicket } from "@/lib/ticket-access";
-import { TicketStatus } from "@/lib/generated/prisma/enums";
+import { buildClosedEmailBody, buildResolvedEmailBody } from "@/lib/ticket-lifecycle-emails";
+import { TicketStatus, MessageDirection, MessageAuthorType } from "@/lib/generated/prisma/enums";
 import { ticketDetailSelect, updateTicketStatusSchema } from "@/models/ticket.model";
 
 // GET /api/tickets/[id] — any authenticated user (Admin or Agent), scoped
@@ -38,9 +40,15 @@ const ALLOWED_TRANSITIONS: Record<TicketStatus, readonly TicketStatus[]> = {
 };
 
 // PATCH /api/tickets/[id] — status-only mutation, same auth/scoping as GET.
-// No reply/outbound-email support here (see the ticket-detail-page plan —
-// building a real Gmail send is separate, later scope); this only ever
-// flips `status` and stamps the matching `resolvedAt`/`closedAt`.
+// Marking a ticket Resolved or Closed also sends a real, SYSTEM-authored
+// email to the customer (see lib/ticket-lifecycle-emails.ts for the copy) —
+// same sendGmailReply()/threading pattern as an agent's own reply
+// (app/api/tickets/[id]/reply/route.ts), just with authorType: SYSTEM and
+// no authorId instead of AGENT. The Gmail send happens *before* the DB
+// write: if it throws, the whole request fails and status never changes,
+// so a ticket can't end up "closed" or "resolved" in the DB while the
+// customer was never actually told (the detail page's updateStatus.error
+// alert surfaces that failure back to the agent for a retry).
 export const PATCH = withApiHandler<{ params: Promise<{ id: string }> }>(
   async (request, context, log, session) => {
     if (!session?.user) throw new UnauthorizedError();
@@ -48,24 +56,68 @@ export const PATCH = withApiHandler<{ params: Promise<{ id: string }> }>(
     const { id } = await context.params;
     const { status: nextStatus } = updateTicketStatusSchema.parse(await request.json());
 
-    const existing = await findScopedTicket(id, session, ticketDetailSelect);
+    // ticketDetailSelect plus gmailThreadId — same extension the sibling
+    // reply route makes, for the same reason: sendGmailReply() below needs
+    // it to thread the outbound send into the right Gmail conversation.
+    const existing = await findScopedTicket(id, session, {
+      ...ticketDetailSelect,
+      gmailThreadId: true,
+    });
     if (!existing) throw new NotFoundError("Ticket not found");
 
     if (!ALLOWED_TRANSITIONS[existing.status].includes(nextStatus)) {
       throw new ConflictError(`Cannot move a ${existing.status} ticket to ${nextStatus}`);
     }
 
-    const ticket = await prisma.ticket.update({
-      where: { id },
-      data: {
-        status: nextStatus,
-        ...(nextStatus === TicketStatus.RESOLVED ? { resolvedAt: new Date() } : {}),
-        ...(nextStatus === TicketStatus.CLOSED ? { closedAt: new Date() } : {}),
-      },
-      select: ticketDetailSelect,
+    // Most recent message in the thread with a real rfcMessageId, used to
+    // build In-Reply-To/References — same lookup as the reply route.
+    const lastMessage = await prisma.ticketMessage.findFirst({
+      where: { ticketId: id, rfcMessageId: { not: null } },
+      orderBy: { createdAt: "desc" },
+      select: { rfcMessageId: true },
     });
 
-    log.info({ ticketId: id, from: existing.status, to: nextStatus }, "updated ticket status");
+    const subject = /^re:/i.test(existing.subject) ? existing.subject : `Re: ${existing.subject}`;
+    const bodyText =
+      nextStatus === TicketStatus.CLOSED ? buildClosedEmailBody() : buildResolvedEmailBody();
+
+    log.info(
+      { ticketId: id, threadId: existing.gmailThreadId, subject, to: nextStatus },
+      "sending automated status-change email via Gmail"
+    );
+
+    const { gmailMessageId, rfcMessageId } = await sendGmailReply({
+      threadId: existing.gmailThreadId,
+      to: existing.customerEmail,
+      subject,
+      bodyText,
+      inReplyTo: lastMessage?.rfcMessageId ?? null,
+    });
+
+    const [ticket] = await prisma.$transaction([
+      prisma.ticket.update({
+        where: { id },
+        data: {
+          status: nextStatus,
+          ...(nextStatus === TicketStatus.RESOLVED ? { resolvedAt: new Date() } : {}),
+          ...(nextStatus === TicketStatus.CLOSED ? { closedAt: new Date() } : {}),
+        },
+        select: ticketDetailSelect,
+      }),
+      prisma.ticketMessage.create({
+        data: {
+          ticketId: id,
+          direction: MessageDirection.OUTBOUND,
+          authorType: MessageAuthorType.SYSTEM,
+          body: bodyText,
+          gmailMessageId,
+          rfcMessageId,
+          inReplyTo: lastMessage?.rfcMessageId ?? null,
+        },
+      }),
+    ]);
+
+    log.info({ ticketId: id, from: existing.status, to: nextStatus, gmailMessageId }, "updated ticket status");
     return NextResponse.json(ticket);
   }
 );

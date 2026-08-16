@@ -128,7 +128,7 @@ describe("TicketDetailView", () => {
     expect(screen.queryByLabelText("Reply to customer")).toBeNull();
   });
 
-  it("clicking Mark Resolved PATCHes the ticket to RESOLVED", async () => {
+  it("clicking Mark Resolved opens a confirm dialog, and only PATCHes to RESOLVED once confirmed", async () => {
     apiClientMocks.patch.mockImplementation(() =>
       Promise.resolve({ data: ticket({ status: TicketStatus.RESOLVED }) })
     );
@@ -136,11 +136,27 @@ describe("TicketDetailView", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Mark Resolved" }));
 
+    const dialog = await screen.findByRole("alertdialog", { name: "Mark this ticket resolved?" });
+    expect(apiClientMocks.patch).not.toHaveBeenCalled();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Mark ticket resolved" }));
+
     await waitFor(() =>
       expect(apiClientMocks.patch).toHaveBeenCalledWith("/api/tickets/ticket-1", {
         status: "RESOLVED",
       })
     );
+  });
+
+  it("cancelling the Mark Resolved confirm dialog never calls PATCH", async () => {
+    renderView(ticket({ status: TicketStatus.OPEN }));
+
+    fireEvent.click(await screen.findByRole("button", { name: "Mark Resolved" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Mark this ticket resolved?" });
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+
+    expect(apiClientMocks.patch).not.toHaveBeenCalled();
   });
 
   it("clicking Close opens a confirm dialog, and only PATCHes to CLOSED once confirmed", async () => {
@@ -179,6 +195,8 @@ describe("TicketDetailView", () => {
     renderView(ticket({ status: TicketStatus.OPEN }));
 
     fireEvent.click(await screen.findByRole("button", { name: "Mark Resolved" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Mark this ticket resolved?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Mark ticket resolved" }));
 
     expect(await screen.findByText("Conflict")).toBeTruthy();
   });
