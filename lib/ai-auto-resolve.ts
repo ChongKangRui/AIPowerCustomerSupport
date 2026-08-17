@@ -1,7 +1,7 @@
 import { generateText, Output } from "ai";
 import { z } from "zod";
 
-import { geminiFlash } from "@/lib/gemini";
+import { geminiFlashLite } from "@/lib/gemini";
 import { getKnowledgeBaseContext } from "@/lib/knowledge-base";
 import { logger } from "@/lib/logger";
 
@@ -67,7 +67,7 @@ export async function checkAutoResolve(ticket: {
     const kbContext = await getKnowledgeBaseContext();
 
     const { output } = await generateText({
-      model: geminiFlash(),
+      model: geminiFlashLite(),
       output: Output.object({ schema: autoResolveSchema }),
       system: SYSTEM_PROMPT_PREFIX + kbContext,
       prompt: `Subject: ${ticket.subject}\n\n${ticket.body}`,

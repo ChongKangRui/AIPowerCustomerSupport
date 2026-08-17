@@ -11,6 +11,7 @@ import {
 import { prisma } from "@/lib/prisma";
 import { Role, TicketStatus } from "@/lib/generated/prisma/enums";
 import { assignTicketSchema, ticketDetailSelect } from "@/models/ticket.model";
+import { assignmentNotificationData } from "@/lib/notifications";
 
 // PATCH /api/tickets/[id]/assign is admin-only manual assignment for a single ticket.
 //
@@ -29,7 +30,7 @@ export const PATCH = withApiHandler<{ params: Promise<{ id: string }> }>(
 
     const existing = await prisma.ticket.findUnique({
       where: { id },
-      select: { status: true },
+      select: { status: true, subject: true, assignedToId: true },
     });
     if (!existing) throw new NotFoundError("Ticket not found");
     if (existing.status !== TicketStatus.OPEN) {
@@ -44,11 +45,23 @@ export const PATCH = withApiHandler<{ params: Promise<{ id: string }> }>(
       if (!assignee || assignee.deletedAt) throw new BadRequestError("Assignee not found");
     }
 
-    const ticket = await prisma.ticket.update({
-      where: { id },
-      data: { assignedToId },
-      select: ticketDetailSelect,
-    });
+    // Only notify on a real handoff — skip a no-op re-PATCH (same
+    // assignedToId) and skip self-assignment (admin already knows).
+    const notifyAssignee =
+      assignedToId &&
+      assignedToId !== existing.assignedToId &&
+      assignedToId !== session.user.id;
+
+    const [ticket] = await prisma.$transaction([
+      prisma.ticket.update({ where: { id }, data: { assignedToId }, select: ticketDetailSelect }),
+      ...(notifyAssignee
+        ? [
+            prisma.notification.create({
+              data: assignmentNotificationData(assignedToId, id, existing.subject),
+            }),
+          ]
+        : []),
+    ]);
 
     log.info({ ticketId: id, assignedToId }, "assigned ticket");
     return NextResponse.json(ticket);

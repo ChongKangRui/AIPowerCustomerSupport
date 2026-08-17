@@ -40,6 +40,7 @@ export function useSyncGmail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["tickets"] });
       queryClient.invalidateQueries({ queryKey: ["ticket"] });
+      queryClient.invalidateQueries({ queryKey: ["notifications"] });
     },
   });
 }

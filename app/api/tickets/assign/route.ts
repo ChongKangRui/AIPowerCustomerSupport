@@ -11,6 +11,7 @@ import {
 import { prisma } from "@/lib/prisma";
 import { Role, TicketStatus } from "@/lib/generated/prisma/enums";
 import { bulkAssignTicketsSchema } from "@/models/ticket.model";
+import { assignmentNotificationData } from "@/lib/notifications";
 
 // PATCH /api/tickets/assign is admin-only bulk assignment, driven by the tickets list's multi-select toolbar (components/tickets/tickets-view.tsx).
 // It has the same eligibility rule as the single-ticket .../[id]/assign/route.ts: only OPEN tickets are assignable.
@@ -33,7 +34,7 @@ export const PATCH = withApiHandler(async (request, _context, log, session) => {
 
   const tickets = await prisma.ticket.findMany({
     where: { id: { in: ticketIds } },
-    select: { id: true, status: true },
+    select: { id: true, status: true, subject: true, assignedToId: true },
   });
   if (tickets.length !== ticketIds.length) throw new NotFoundError("One or more tickets not found");
 
@@ -44,10 +45,22 @@ export const PATCH = withApiHandler(async (request, _context, log, session) => {
     );
   }
 
-  await prisma.ticket.updateMany({
-    where: { id: { in: ticketIds } },
-    data: { assignedToId },
-  });
+  // Same guards as the single-ticket route (.../[id]/assign): only
+  // notify for tickets this actually hands to someone new, and never
+  // when an admin bulk-assigns to themselves.
+  const changedTickets =
+    assignedToId && assignedToId !== session.user.id
+      ? tickets.filter((ticket) => ticket.assignedToId !== assignedToId)
+      : [];
+
+  await prisma.$transaction([
+    prisma.ticket.updateMany({ where: { id: { in: ticketIds } }, data: { assignedToId } }),
+    ...changedTickets.map((ticket) =>
+      prisma.notification.create({
+        data: assignmentNotificationData(assignedToId!, ticket.id, ticket.subject),
+      })
+    ),
+  ]);
 
   log.info({ ticketIds, assignedToId, count: ticketIds.length }, "bulk assigned tickets");
   return NextResponse.json({ count: ticketIds.length });

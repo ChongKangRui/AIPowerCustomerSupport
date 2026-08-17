@@ -63,6 +63,11 @@
 ## Hosting
 - **Vercel** — Next.js app
 
+## Notifications
+- In-app only, no push infra (Pub/Sub, WebSockets, SSE) — **polling**, the same pattern already established for Gmail ingestion (see Email section above). `hooks/use-notifications.ts` polls `GET /api/notifications` every 20s via TanStack Query's `refetchInterval` — the first use of that option anywhere in this codebase; every other hook here is refetch-on-demand (invalidate after a mutation, or refetch-on-refocus), since a notification is the first thing that needs to pick up changes made by *someone else's* action.
+- Toast ("flash UI"): **shadcn `sonner`** (`npx shadcn@latest add sonner`, generated `components/ui/sonner.tsx`, pulls in `sonner` + `next-themes`), `<Toaster />` mounted once in `app/providers.tsx`. Nothing toast-related existed in the repo before Phase 5.
+- See `implementation-plan.md` Phase 5 for the data model (`Notification`) and the four assignment-changing call sites that create one.
+
 ## Dashboard
 - Charting library: **Tremor or shadcn/ui charts** — still open, decide when building that screen. Both pair with Tailwind; Tremor leans toward ready-made dashboard components, shadcn charts (built on Recharts) leans toward more manual composition but matches if shadcn/ui is already used elsewhere in the UI.
 
@@ -71,7 +76,7 @@
 ## Open items / things to confirm before or during build
 
 1. **Dashboard charting library** — Tremor vs shadcn/ui charts, still open (see above).
-2. **Need internal notification email sending too** — Gmail API handles customer-facing threads well, but sending a one-off "you've been assigned" email to an agent from the same account works fine as well (just a non-threaded send via the same client) — no second email service needed, noting this so it isn't assumed forgotten.
+2. ~~Need internal notification email sending too~~ — resolved, cut. Phase 5 shipped in-app only (bell icon + polling, see `implementation-plan.md`); email notification was explicitly dropped a week out from deadline, since the seeded demo accounts aren't real inboxes and an email send there would be unverifiable in a demo.
 3. **`historyId` persistence** — the polling logic needs somewhere to store the last-seen Gmail `historyId` between runs (a small table, e.g. `EmailSyncState`) so restarts/concurrent triggers don't reprocess or miss messages.
 
 > Step-by-step Gmail API setup (Google Cloud config, OAuth token, polling code, send code, cron trigger) now lives in `implementation-plan.md` (Phase 1), as build tasks rather than reference material.

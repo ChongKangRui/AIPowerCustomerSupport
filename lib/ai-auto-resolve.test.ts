@@ -15,11 +15,12 @@ vi.mock("ai", async (importOriginal) => {
   return { ...actual, generateText: aiMocks.generateText };
 });
 
-// geminiFlash() throws if GEMINI_API_KEY isn't set (lib/gemini.ts) — this
-// test shouldn't depend on local .env state either way, and it doesn't
-// matter what "model" checkAutoResolve actually passes along, since
-// generateText itself is mocked above and never dispatches a real call.
-vi.mock("@/lib/gemini", () => ({ geminiFlash: () => "mock-model" }));
+// geminiFlashLite() throws if GEMINI_API_KEY isn't set (lib/gemini.ts) —
+// this test shouldn't depend on local .env state either way, and it
+// doesn't matter what "model" checkAutoResolve actually passes along,
+// since generateText itself is mocked above and never dispatches a real
+// call.
+vi.mock("@/lib/gemini", () => ({ geminiFlashLite: () => "mock-model" }));
 
 // getKnowledgeBaseContext() queries Prisma (lib/knowledge-base.ts) — not
 // what this file is testing, and a real call would need a DB connection.

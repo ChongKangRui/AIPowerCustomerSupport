@@ -76,18 +76,7 @@ export function withGreetingAndSignoff(body: ReadableStream<string>, customerNam
 // duplicate-submission guard here — rephrasing has no side effect to
 // dedupe, it's pure generation.
 //
-// This uses geminiFlashLite(), not geminiFlash() — a deliberate change
-// from this route's first version. "Customer-facing" isn't the right
-// axis for picking a model tier; "does a human review this before it
-// ships" is. Path A's response (lib/ai-auto-resolve.ts) goes straight to
-// sendGmailReply() with zero human review, so it keeps the quality model.
-// This route's output lands in the agent's textarea — they read it and
-// can edit or reject it before Send, a real safety net Path A doesn't
-// have. The task is also just narrower: restyling text the agent already
-// wrote and already decided the substance of, not synthesizing a new
-// answer from reference material. That's exactly what a lite tier is
-// for. Bonus: this now draws from a separate quota pool than Path A
-// instead of both hammering the same one.
+// Uses geminiFlashLite() — see lib/gemini.ts's model-split comment.
 //
 // This returns a streaming Response instead of NextResponse.json(). The two real
 // quirks that come with streaming through it anyway: the wrapper's own

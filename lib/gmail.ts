@@ -10,6 +10,11 @@ import { MessageAuthorType, MessageDirection, TicketStatus } from "@/lib/generat
 import { checkAutoResolve } from "@/lib/ai-auto-resolve";
 import { assignNextAgent } from "@/lib/ticket-assignment";
 import { buildAiResolvedEmailBody } from "@/lib/ticket-lifecycle-emails";
+import {
+  assignmentNotificationData,
+  newMessageNotificationData,
+  reopenNotificationData,
+} from "@/lib/notifications";
 
 // ---------------------------------------------------------------------------
 // Client
@@ -314,16 +319,17 @@ async function routeNewTicket(
       const agentId = await assignNextAgent();
 
       if (agentId) {
-        await prisma.ticket.update({ where: { id: ticketId }, data: { assignedToId: agentId } });
+        await prisma.$transaction([
+          prisma.ticket.update({ where: { id: ticketId }, data: { assignedToId: agentId } }),
+          prisma.notification.create({
+            data: assignmentNotificationData(agentId, ticketId, parsed.subject),
+          }),
+        ]);
         stats.escalatedAndAssigned++;
         logger.info({ ticketId, agentId }, "Path B escalated and auto-assigned new ticket");
       } else {
         logger.warn({ ticketId }, "Path B escalation found no eligible agent, ticket left unassigned");
       }
-      // No notification is sent here. "Notify agent" is a Phase 5 feature
-      // (in-app only, per implementation-plan.md) that doesn't exist yet —
-      // the agent finds this ticket by checking their queue, same as any
-      // manually assigned one.
     }
   } catch (error) {
     // `err`, not `error` — Pino only auto-serializes an Error object
@@ -434,6 +440,16 @@ async function processMessage(messageId: string, stats: PollStats): Promise<void
             where: { id: existingTicket.id },
             data: { status: TicketStatus.OPEN, assignedToId },
           }),
+          // Notifies whoever's assigned even if assignedToId didn't
+          // change — "reopened" is worth flagging separately from
+          // "assigned" (see lib/notifications.ts).
+          ...(assignedToId
+            ? [
+                prisma.notification.create({
+                  data: reopenNotificationData(assignedToId, existingTicket.id, existingTicket.subject),
+                }),
+              ]
+            : []),
         ]);
         stats.ticketsReopened++;
         logger.info(
@@ -441,7 +457,25 @@ async function processMessage(messageId: string, stats: PollStats): Promise<void
           "Reopened ticket after customer reply to a resolved ticket"
         );
       } else {
-        await messageCreate;
+        // Already OPEN, already assigned — notify the assignee, since a
+        // customer follow-up here is at least as common as an actual
+        // reopen. Skipped when unassigned (no eligible agent from Path
+        // B) — same "no one to notify" guard the assign routes use, not
+        // a fresh round-robin here.
+        if (existingTicket.assignedToId) {
+          await prisma.$transaction([
+            messageCreate,
+            prisma.notification.create({
+              data: newMessageNotificationData(
+                existingTicket.assignedToId,
+                existingTicket.id,
+                existingTicket.subject
+              ),
+            }),
+          ]);
+        } else {
+          await messageCreate;
+        }
       }
       stats.messagesAppended++;
     } else {

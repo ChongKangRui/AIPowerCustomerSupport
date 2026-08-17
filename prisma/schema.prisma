@@ -38,6 +38,17 @@ enum MessageAuthorType {
   SYSTEM
 }
 
+/// Phase 5: events that create an in-app Notification for an agent.
+/// TICKET_ASSIGNED: round-robin or manual assignment. TICKET_REOPENED: a
+/// resolved ticket reopened via customer reply — distinct from ASSIGNED
+/// since the assignee may not have changed. TICKET_NEW_MESSAGE: a reply
+/// on an already-OPEN, already-assigned ticket.
+enum NotificationType {
+  TICKET_ASSIGNED
+  TICKET_REOPENED
+  TICKET_NEW_MESSAGE
+}
+
 // ---------------------------------------------------------------------------
 // Auth.js models (User is extended with app-specific fields)
 // ---------------------------------------------------------------------------
@@ -69,6 +80,7 @@ model User {
 
   assignedTickets Ticket[]        @relation("AssignedAgent")
   authoredMessages TicketMessage[] @relation("MessageAuthor")
+  notifications   Notification[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -141,7 +153,8 @@ model Ticket {
   category  String?
   sentiment String?
 
-  messages TicketMessage[]
+  messages      TicketMessage[]
+  notifications Notification[]
 
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
@@ -177,6 +190,31 @@ model TicketMessage {
   createdAt DateTime @default(now())
 
   @@index([ticketId, createdAt])
+}
+
+/// Phase 5: in-app notification for an agent, created at the moment a
+/// ticket lands on their desk. Both FKs are required and Cascade — a
+/// notification has no meaning without the ticket/user it points at,
+/// unlike Ticket.assignedToId's SetNull, which exists to keep a deleted
+/// user's *historical* attribution readable.
+model Notification {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  ticketId String
+  ticket   Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  type    NotificationType
+  message String
+
+  /// Null = unread. Set = read, at this timestamp.
+  readAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([userId, readAt])
 }
 
 model KnowledgeBaseEntry {

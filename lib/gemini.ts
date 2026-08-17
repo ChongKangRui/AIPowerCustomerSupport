@@ -21,14 +21,8 @@ function getGoogleProvider() {
   return googleProvider;
 }
 
-// Model split. The axis that actually matters here is "does a human
-// review this before it ships," not "does a customer eventually see it"
-// — an earlier version of this file split on the latter, which picked
-// the wrong tier for rephrasing (see geminiFlashLite's comment below).
-// Quality goes to anything that ships unsupervised, straight from the
-// model to the customer. Lite goes to anything a human reviews before it
-// goes anywhere, or that's a narrow, mechanical transformation rather
-// than open-ended synthesis.
+// Model split: geminiFlashLite() for the current callers, geminiFlash()
+// kept in reserve for a task that needs the stronger tier.
 //
 // These use Google's "-latest" alias ids, not a dated snapshot like
 // "gemini-2.5-flash". A pinned snapshot can get cut off from new API keys
@@ -38,21 +32,14 @@ function getGoogleProvider() {
 // currently considers the standard flash/flash-lite model, so this stays
 // correct without needing another manual bump later.
 
-// Used by app/api/tickets/[id]/rephrase/route.ts. Rephrasing an agent's
-// draft is a narrow, mechanical restyle — it doesn't decide what to say,
-// the agent already did — and the agent reads the result and can edit or
-// reject it before Send. Genuinely lighter task, genuinely supervised.
-// Also unused by anything else, so it draws from a separate quota pool
-// than geminiFlash() below — see HOW-IT-WORKS.md §8.4.
+// Used by app/api/tickets/[id]/rephrase/route.ts and
+// lib/ai-auto-resolve.ts's Path A confidence check.
 export function geminiFlashLite() {
   return getGoogleProvider()("gemini-flash-lite-latest");
 }
 
-// Path A's confidence check (lib/ai-auto-resolve.ts) uses this one, not
-// the Lite model above — and, as of this comment, it's the only caller
-// left. Its `response` field goes straight to sendGmailReply() with zero
-// human review when confident; nobody reads it before the customer does.
-// That's real justification for the stronger model, unlike rephrasing.
+// No callers left as of this comment — kept for the stronger tier if a
+// future unsupervised task needs it.
 export function geminiFlash() {
   return getGoogleProvider()("gemini-flash-latest");
 }

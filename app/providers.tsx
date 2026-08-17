@@ -2,6 +2,8 @@
 
 import { QueryClient, QueryClientProvider, environmentManager } from "@tanstack/react-query";
 
+import { Toaster } from "@/components/ui/sonner";
+
 // This is the standard TanStack Query v5 App Router pattern.
 // On the server, this always makes a fresh QueryClient per request, with no shared state across requests or users.
 // In the browser, this reuses one client for the lifetime of the tab, so cached data — such as the current session — survives client-side navigations instead of being thrown away on every render.
@@ -30,5 +32,12 @@ function getQueryClient() {
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const queryClient = getQueryClient();
-  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+  return (
+    <QueryClientProvider client={queryClient}>
+      {children}
+      {/* Phase 5: the notification bell's "flash UI" toast (components/notifications/notification-bell.tsx).
+          Mounted once here, not in app/(main)/layout.tsx, so it's present on every route including /login. */}
+      <Toaster />
+    </QueryClientProvider>
+  );
 }
