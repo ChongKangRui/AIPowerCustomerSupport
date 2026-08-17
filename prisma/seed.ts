@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 
 import { prisma } from "../lib/prisma";
 import { Role } from "../lib/generated/prisma/enums";
+import { kbEntries } from "./kb-entries";
 
 // Run with: npm run db:seed
 async function main() {
@@ -38,6 +39,19 @@ async function main() {
   });
 
   console.log(`Seeded agent: ${agent.email}`);
+
+  // Path A (AI auto-resolve) reads this table at runtime — see
+  // lib/knowledge-base.ts. title is @unique, so this upserts by title
+  // and is safe to re-run after editing prisma/kb-entries.ts.
+  for (const entry of kbEntries) {
+    await prisma.knowledgeBaseEntry.upsert({
+      where: { title: entry.title },
+      update: { content: entry.content, category: entry.category },
+      create: entry,
+    });
+  }
+
+  console.log(`Seeded ${kbEntries.length} knowledge base entries`);
 }
 
 main()

@@ -86,10 +86,16 @@ function renderView(
 
 // This covers TicketDetailView's own orchestration logic: which status
 // actions render for each ticket.status, the Close confirm-dialog flow,
-// mutation error display, and the reply box's disabled-until-typed
-// wiring. The reply box also stays genuinely unwired to any API call;
-// see that component's own comment. This also covers the error state
-// when the ticket fails to load.
+// mutation error display, and the reply box's disabled-until-typed and
+// POST wiring. This also covers the error state when the ticket fails to
+// load.
+//
+// The reply box's "Rephrase with AI" button isn't covered here. It
+// doesn't go through apiClientMocks at all — hooks/use-rephrase-reply.ts
+// deliberately bypasses apiClient for a real fetch()+ReadableStream, and
+// that hook's own chunk-accumulation/error-handling logic already has
+// dedicated coverage in hooks/use-rephrase-reply.test.ts. Retesting that
+// here through a second, differently-shaped mock would just duplicate it.
 //
 // The header and conversation rendering this component wraps has its
 // own dedicated tests (ticket-detail-header.test.tsx,
@@ -249,8 +255,8 @@ describe("TicketDetailView", () => {
     });
   });
 
-  describe("reply box (UI-only — not wired up yet)", () => {
-    it("disables Send until text is typed, and never calls the API even once enabled", async () => {
+  describe("reply box", () => {
+    it("disables Send until text is typed", async () => {
       renderView(ticket({ status: TicketStatus.OPEN }));
 
       const textarea = await screen.findByLabelText("Reply to customer");
@@ -259,10 +265,6 @@ describe("TicketDetailView", () => {
 
       fireEvent.change(textarea, { target: { value: "Thanks for reaching out." } });
       expect(sendButton.hasAttribute("disabled")).toBe(false);
-
-      fireEvent.click(sendButton);
-      expect(apiClientMocks.post).not.toHaveBeenCalled();
-      expect(apiClientMocks.patch).not.toHaveBeenCalled();
     });
 
     it("leaves Send disabled for whitespace-only input", async () => {
@@ -272,6 +274,35 @@ describe("TicketDetailView", () => {
       fireEvent.change(textarea, { target: { value: "   " } });
 
       expect(screen.getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(true);
+    });
+
+    it("clicking Send POSTs the typed text to the reply endpoint, and clears the field on success", async () => {
+      apiClientMocks.post.mockImplementation(() =>
+        Promise.resolve({ data: ticket({ status: TicketStatus.OPEN }) })
+      );
+      renderView(ticket({ status: TicketStatus.OPEN }));
+
+      const textarea = (await screen.findByLabelText("Reply to customer")) as HTMLTextAreaElement;
+      fireEvent.change(textarea, { target: { value: "Thanks for reaching out." } });
+      fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+      await waitFor(() =>
+        expect(apiClientMocks.post).toHaveBeenCalledWith("/api/tickets/ticket-1/reply", {
+          body: "Thanks for reaching out.",
+        })
+      );
+      await waitFor(() => expect(textarea.value).toBe(""));
+    });
+
+    it("shows the mutation's error message inline when the reply POST fails", async () => {
+      apiClientMocks.post.mockImplementation(() => Promise.reject(new Error("Cannot reply to a closed ticket")));
+      renderView(ticket({ status: TicketStatus.OPEN }));
+
+      const textarea = await screen.findByLabelText("Reply to customer");
+      fireEvent.change(textarea, { target: { value: "Thanks for reaching out." } });
+      fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+      expect(await screen.findByText("Cannot reply to a closed ticket")).toBeTruthy();
     });
   });
 });

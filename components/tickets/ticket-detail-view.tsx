@@ -22,6 +22,7 @@ import { TicketDetailSkeleton } from "@/components/tickets/ticket-detail-skeleto
 import { useTicket } from "@/hooks/use-ticket";
 import { useUpdateTicketStatus } from "@/hooks/use-update-ticket-status";
 import { useSendTicketReply } from "@/hooks/use-send-ticket-reply";
+import { useRephraseReply } from "@/hooks/use-rephrase-reply";
 import { useAssignTicket } from "@/hooks/use-assign-ticket";
 import { useCurrentUser } from "@/hooks/use-current-user";
 import { useUsers } from "@/hooks/use-users";
@@ -38,6 +39,8 @@ import { Role, TicketStatus } from "@/lib/generated/prisma/enums";
 // The API route is still the actual enforcement.
 // The reply box sends a real outbound email through useSendTicketReply (app/api/tickets/[id]/reply/route.ts, threaded through lib/gmail.ts's sendGmailReply()).
 //
+// "Rephrase with AI" streams a rewrite of the draft straight into the same replyText state, via useRephraseReply (app/api/tickets/[id]/rephrase/route.ts). It's the one thing here that isn't a TanStack Query mutation — see that hook's own comment for why.
+//
 // The assign control rendered in the header follows the same pattern.
 // This component owns useAssignTicket and the isAdmin/agents it needs. The header just renders what it is handed.
 // See app/api/tickets/[id]/assign/route.ts for the actual admin-only, OPEN-only enforcement.
@@ -45,6 +48,7 @@ export function TicketDetailView({ ticketId }: { ticketId: string }) {
   const { data: ticket, isLoading, isError } = useTicket(ticketId);
   const updateStatus = useUpdateTicketStatus(ticketId);
   const sendReply = useSendTicketReply(ticketId);
+  const rephrase = useRephraseReply(ticketId);
   const assignTicket = useAssignTicket(ticketId);
   const { user } = useCurrentUser();
   const isAdmin = user?.role === Role.ADMIN;
@@ -113,15 +117,31 @@ export function TicketDetailView({ ticketId }: { ticketId: string }) {
               placeholder="Type a reply to the customer…"
               rows={4}
               aria-label="Reply to customer"
+              // Disabled while a rephrase is streaming in, not while
+              // sending — sendReply.isPending is a quick request, but
+              // disabling the field the agent is looking at mid-send
+              // would just flicker for no reason. Streaming, by
+              // contrast, overwrites this same field's value on every
+              // chunk — editing at the same time would race against
+              // that and lose keystrokes.
+              disabled={rephrase.isStreaming}
             />
-            {sendReply.error && (
+            {(sendReply.error || rephrase.error) && (
               <p role="alert" className="text-sm text-destructive">
-                {sendReply.error.message}
+                {sendReply.error?.message ?? rephrase.error}
               </p>
             )}
-            <div className="flex justify-end">
+            <div className="flex justify-end gap-2">
               <Button
-                disabled={!replyText.trim() || sendReply.isPending}
+                type="button"
+                variant="outline"
+                disabled={!replyText.trim() || rephrase.isStreaming || sendReply.isPending}
+                onClick={() => rephrase.rephrase(replyText, setReplyText)}
+              >
+                {rephrase.isStreaming ? "Rephrasing…" : "Rephrase with AI"}
+              </Button>
+              <Button
+                disabled={!replyText.trim() || sendReply.isPending || rephrase.isStreaming}
                 onClick={() =>
                   sendReply.mutate(replyText, { onSuccess: () => setReplyText("") })
                 }

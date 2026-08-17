@@ -93,17 +93,30 @@ Goal: tickets are fully manageable by a human, independent of AI.
 
 ## Phase 4 — AI Integration (Gemini)
 _Lower priority — see note at top._
-Goal: Path A (full auto-resolve) and Path B (human draft + AI rephrase) both working, plus summarization.
+Goal: Path A (full auto-resolve) and Path B (human draft + AI rephrase) both working. Summarization was cut — see that item below for why.
 
 - [x] Install Vercel AI SDK (`ai`, `@ai-sdk/google`) — still need to store `GEMINI_API_KEY`
-- [ ] Seed `KnowledgeBaseEntry` table with ~10–20 FAQ/policy entries
-- [ ] Build Path A function: `generateObject` call with KB stuffed into context, schema `{ confident: boolean, response: string }`
-- [ ] Wire Path A into the inbound ticket flow: new ticket → run confidence check → if confident, send AI reply via `sendGmailReply`, mark ticket `RESOLVED`
-- [ ] Build round-robin assignment function for escalated (non-confident) tickets
-- [ ] Wire Path B trigger: not confident → assign via round robin → notify agent (stub for now, real notification in Phase 5)
-- [ ] Ticket detail UI: agent draft textarea + "Rephrase with AI" button using `streamText`
-- [ ] Ticket summarization: `generateObject` producing `{ summary, category, sentiment }`, displayed on ticket detail
-- [ ] Decide and document: does summarization run once at ticket creation/escalation, or on-demand from the UI? (flagged as open in earlier review — resolve here)
+- [x] Seed `KnowledgeBaseEntry` table with ~10–20 FAQ/policy entries — `prisma/kb-entries.ts` (15 entries: billing, account, shipping, technical) imported by `prisma/seed.ts`, upserted by `title` (now `@unique`, migration `20260817095954_kb_entry_title_unique`)
+- [x] Build Path A function: KB-stuffed confidence check, schema `{ confident: boolean, response: string }` — `lib/ai-auto-resolve.ts`'s `checkAutoResolve()`. Uses `generateText` + `Output.object` rather than the literal `generateObject` named here: this SDK version (`ai@7`) deprecates `generateObject` in favor of that (see AGENTS.md re: breaking changes vs. training data). Fails open (`confident: false`) on any model-call error, so a bad AI call routes to Path B instead of crashing the poll. Uses `gemini-flash-latest` (the quality model, not Flash-Lite — see `lib/gemini.ts`'s model split) since `response` is sent to the customer verbatim when confident. That's a `-latest` alias, not a pinned snapshot like `gemini-2.5-flash`: a freshly created API key 404'd against that exact pinned model mid-testing ("no longer available to new users"), so both `lib/gemini.ts` exports were switched to `-latest` aliases to avoid the same trap recurring.
+- [x] Wire Path A into the inbound ticket flow — `lib/gmail.ts`'s new `routeNewTicket()`, called from `processMessage()` right after a brand-new ticket is created (not on reopen-via-reply). Confident → `sendGmailReply` with `buildAiResolvedEmailBody()` (the AI's answer + the same reopens-on-reply disclosure `buildResolvedEmailBody` uses) → ticket set to `RESOLVED`/`resolvedByAi: true` and an `OUTBOUND`/`AI` `TicketMessage` recorded, in one transaction.
+- [x] Build round-robin assignment function for escalated (non-confident) tickets — `lib/ticket-assignment.ts`'s `assignNextAgent()`. Least-loaded, not a strict rotation: picks the `Role.AGENT` (not Admin) with the fewest currently-assigned `OPEN` tickets, recomputed fresh each call, so it self-corrects even after manual admin reassignment. Returns `null` (ticket left unassigned) if no eligible agent exists.
+- [x] Wire Path B trigger: not confident → `assignNextAgent()` → `assignedToId` set if one came back — same `routeNewTicket()` above. "Notify agent" is a genuine no-op stub for now (Phase 5 is in-app only, and doesn't exist yet); the agent finds the ticket in their queue like any manual assignment. New `PollStats` counters: `aiAutoResolved`, `escalatedAndAssigned`.
+- [x] Ticket detail UI: agent draft textarea + "Rephrase with AI" button using `streamText` — `app/api/tickets/[id]/rephrase/route.ts` streams via `createTextStreamResponse`/`toTextStream` (the non-deprecated pair; `StreamTextResult.toTextStreamResponse()` still exists but is `@deprecated` in this SDK version — see AGENTS.md re: breaking changes). `hooks/use-rephrase-reply.ts` consumes it with a plain `fetch` + `response.body.getReader()`, not `apiClient`/TanStack Query — axios buffers the whole body, and there's nothing to invalidate for a pure-generation call. Wired into the reply box in `components/tickets/ticket-detail-view.tsx`: streams progressively into the same `replyText` state, `Textarea` disabled mid-stream so typing can't race the incoming chunks. Uses `geminiFlashLite()`, not `geminiFlash()` (a correction after first shipping this on the quality model) — the right split isn't "does a customer eventually see it," it's "does a human review it before it ships": the agent reads and can edit/reject the rephrase before Send, unlike Path A's unsupervised auto-reply, and rephrasing is a narrower, more mechanical task than Path A's answer-synthesis. See `lib/gemini.ts`'s model-split comment. The rewrite is formatted as an official support email — "Dear \<first name\>," at the start, "Sincerely," at the end — composed deterministically in code (`withGreetingAndSignoff()` wraps the model's text stream in a hand-built `ReadableStream`) rather than left to the model, so the format is guaranteed and the system prompt only has to tell the model to strip any greeting/sign-off already in the agent's draft, not add one.
+- ~~Ticket summarization: `generateObject` producing `{ summary, category, sentiment }`, displayed on ticket detail~~ —
+  cut. Confirmed directly from this project's AI Studio console: the free
+  tier caps out at **RPM 5, TPM 250k, RPD 20**. Path A's confidence check
+  already spends one request per *every* new ticket automatically, no
+  matter the outcome — summarization's original design (auto-run at
+  creation/escalation) would have doubled that automatic, ticket-volume
+  -scaled cost, roughly halving how many tickets the daily quota can carry
+  before exhausting it. Rephrase above is kept despite the same free tier,
+  since its cost scales with agent button-clicks, not inbound ticket
+  volume — a fundamentally safer profile against a 20/day ceiling.
+  `Ticket.summary`/`category`/`sentiment` stay in the schema, unpopulated —
+  no benefit to a migration over a feature that's deferred for a quota
+  reason, not rejected outright.
+- ~~Decide and document: does summarization run once at ticket creation/escalation, or on-demand from the UI?~~ —
+  moot, nothing left to schedule now that summarization itself is cut.
 
 ---
 
@@ -140,5 +153,5 @@ Goal: everything demoable end-to-end.
 - [ ] Full QA pass: Path A auto-resolve, Path B escalation + rephrase, reopen-on-reply, closed-ticket bounce
 - [ ] Env var audit in Vercel production settings (all Gmail/Gemini/DB/auth secrets present)
 - [ ] Confirm cron-job.org is pointed at the production poll endpoint, not localhost
-- [ ] Write README: architecture overview, key decisions, screenshots — this is a portfolio piece, so the write-up matters as much as the code
+- [ ] Write README: architecture overview, key decisions, screenshots — this is a portfolio piece, so the write-up matters as much as the code. Should mention the Gemini free tier's per-minute/per-day request caps as a known constraint (not a bug), and why summarization got cut because of it
 - [ ] Final production deploy

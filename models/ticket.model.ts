@@ -179,3 +179,14 @@ export const sendTicketReplySchema = z.object({
 });
 
 export type SendTicketReplyInput = z.infer<typeof sendTicketReplySchema>;
+
+// This checks the request body for POST /api/tickets/[id]/rephrase.
+// The agent's own rough draft, sent to Gemini to be rewritten into a
+// standard, professional tone (project-scope.md's Path B). Same as
+// sendTicketReplySchema above, this is a mutation payload, so bad input
+// returns a 400 error instead of falling back.
+export const rephraseTicketReplySchema = z.object({
+  draft: z.string().trim().min(1),
+});
+
+export type RephraseTicketReplyInput = z.infer<typeof rephraseTicketReplySchema>;

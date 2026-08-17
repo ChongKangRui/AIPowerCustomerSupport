@@ -7,6 +7,9 @@ import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/lib/generated/prisma/client";
 import { MessageAuthorType, MessageDirection, TicketStatus } from "@/lib/generated/prisma/enums";
+import { checkAutoResolve } from "@/lib/ai-auto-resolve";
+import { assignNextAgent } from "@/lib/ticket-assignment";
+import { buildAiResolvedEmailBody } from "@/lib/ticket-lifecycle-emails";
 
 // ---------------------------------------------------------------------------
 // Client
@@ -228,6 +231,10 @@ export type PollStats = {
   ticketsReopened: number;
   /** A customer replied to a CLOSED ticket. The reply was dropped silently: no ticket, message, or email. */
   ignoredClosedReplies: number;
+  /** Path A: a new ticket's confidence check was confident, so it was auto-replied and marked RESOLVED. */
+  aiAutoResolved: number;
+  /** Path B: a new ticket wasn't confident, and an eligible agent was found and assigned. */
+  escalatedAndAssigned: number;
 };
 
 function isUniqueConstraintError(error: unknown): boolean {
@@ -240,6 +247,93 @@ function isUniqueConstraintError(error: unknown): boolean {
 function isNotFoundError(error: unknown): boolean {
   const code = (error as { code?: unknown } | null)?.code;
   return code === 404 || code === "404";
+}
+
+// Path A / Path B fork for a brand-new ticket (project-scope.md). Only
+// runs for newly created tickets, not for a reply that reopens a RESOLVED
+// one — a customer who wasn't satisfied with a resolution should reach a
+// human next, not the same AI answer again.
+//
+// A failure anywhere in here (the AI call, the Gmail send, the DB write)
+// is caught and logged rather than thrown. The ticket already exists at
+// this point, in its safe default state: OPEN and unassigned, exactly
+// like every ticket before Phase 4 existed. That's a degraded outcome,
+// not a broken one, and it must not abort the rest of this poll batch
+// over one ticket's routing failure.
+async function routeNewTicket(
+  ticketId: string,
+  parsed: ParsedGmailMessage,
+  stats: PollStats
+): Promise<void> {
+  try {
+    const autoResolve = await checkAutoResolve({ subject: parsed.subject, body: parsed.bodyText });
+
+    // Logged unconditionally, confident or not — this is the one place
+    // that shows what Gemini actually decided and why. Without it, a
+    // false verdict and a thrown-then-caught error (checkAutoResolve
+    // fails open to the same { confident: false, response: "" } shape,
+    // see lib/ai-auto-resolve.ts) look identical from the outside.
+    logger.info(
+      { ticketId, subject: parsed.subject, confident: autoResolve.confident, response: autoResolve.response },
+      "Path A confidence check result"
+    );
+
+    if (autoResolve.confident) {
+      const subject = /^re:/i.test(parsed.subject) ? parsed.subject : `Re: ${parsed.subject}`;
+      const bodyText = buildAiResolvedEmailBody(autoResolve.response);
+
+      const { gmailMessageId, rfcMessageId } = await sendGmailReply({
+        threadId: parsed.threadId,
+        to: parsed.fromEmail,
+        subject,
+        bodyText,
+        inReplyTo: parsed.rfcMessageId,
+      });
+
+      await prisma.$transaction([
+        prisma.ticket.update({
+          where: { id: ticketId },
+          data: { status: TicketStatus.RESOLVED, resolvedByAi: true, resolvedAt: new Date() },
+        }),
+        prisma.ticketMessage.create({
+          data: {
+            ticketId,
+            direction: MessageDirection.OUTBOUND,
+            authorType: MessageAuthorType.AI,
+            body: bodyText,
+            gmailMessageId,
+            rfcMessageId,
+            inReplyTo: parsed.rfcMessageId,
+          },
+        }),
+      ]);
+
+      stats.aiAutoResolved++;
+      logger.info({ ticketId, threadId: parsed.threadId }, "Path A auto-resolved new ticket");
+    } else {
+      const agentId = await assignNextAgent();
+
+      if (agentId) {
+        await prisma.ticket.update({ where: { id: ticketId }, data: { assignedToId: agentId } });
+        stats.escalatedAndAssigned++;
+        logger.info({ ticketId, agentId }, "Path B escalated and auto-assigned new ticket");
+      } else {
+        logger.warn({ ticketId }, "Path B escalation found no eligible agent, ticket left unassigned");
+      }
+      // No notification is sent here. "Notify agent" is a Phase 5 feature
+      // (in-app only, per implementation-plan.md) that doesn't exist yet —
+      // the agent finds this ticket by checking their queue, same as any
+      // manually assigned one.
+    }
+  } catch (error) {
+    // `err`, not `error` — Pino only auto-serializes an Error object
+    // (type/message/stack) under the literal key `err`. A plain `error`
+    // key JSON.stringifies to `{}`, since Error's message/stack aren't
+    // enumerable own properties. lib/api-handler.ts already gets this
+    // right; this file didn't, which is why a real failure here would
+    // have logged as an empty, undiagnosable object.
+    logger.error({ err: error, ticketId }, "Path A/B routing failed for new ticket, left unassigned");
+  }
 }
 
 async function processMessage(messageId: string, stats: PollStats): Promise<void> {
@@ -321,21 +415,29 @@ async function processMessage(messageId: string, stats: PollStats): Promise<void
         // OPEN (per project-scope.md), in the same transaction as
         // appending their message.
         //
-        // This leaves assignedToId and resolvedAt untouched. No
-        // round-robin or notification system exists yet (that is Phase
-        // 4/5). Keeping the previous assignee is the lightest "route to
-        // a human" available right now. The ticket just shows back up
-        // as OPEN in their queue.
+        // resolvedAt is deliberately left untouched — it's a historical
+        // fact about when the ticket was first resolved, not "resolved
+        // right now".
+        //
+        // assignedToId: a human-resolved ticket already has an owner,
+        // so this keeps them — they'll see it show back up as OPEN in
+        // their queue. A Path A (AI-resolved, lib/ai-auto-resolve.ts)
+        // ticket never had one, so this runs the same round robin
+        // (lib/ticket-assignment.ts) it would have gotten had the
+        // confidence check failed instead of succeeding in the first
+        // place, rather than leaving it to silently sit unassigned.
+        const assignedToId = existingTicket.assignedToId ?? (await assignNextAgent());
+
         await prisma.$transaction([
           messageCreate,
           prisma.ticket.update({
             where: { id: existingTicket.id },
-            data: { status: TicketStatus.OPEN },
+            data: { status: TicketStatus.OPEN, assignedToId },
           }),
         ]);
         stats.ticketsReopened++;
         logger.info(
-          { threadId: parsed.threadId, ticketId: existingTicket.id },
+          { threadId: parsed.threadId, ticketId: existingTicket.id, assignedToId },
           "Reopened ticket after customer reply to a resolved ticket"
         );
       } else {
@@ -343,7 +445,7 @@ async function processMessage(messageId: string, stats: PollStats): Promise<void
       }
       stats.messagesAppended++;
     } else {
-      await prisma.ticket.create({
+      const ticket = await prisma.ticket.create({
         data: {
           subject: parsed.subject,
           customerEmail: parsed.fromEmail,
@@ -362,6 +464,8 @@ async function processMessage(messageId: string, stats: PollStats): Promise<void
         },
       });
       stats.ticketsCreated++;
+
+      await routeNewTicket(ticket.id, parsed, stats);
     }
   } catch (error) {
     // This is a backstop for a real race between the check above and
@@ -403,6 +507,8 @@ export async function pollGmailAndCreateTickets(): Promise<PollStats> {
     skippedNotFound: 0,
     ticketsReopened: 0,
     ignoredClosedReplies: 0,
+    aiAutoResolved: 0,
+    escalatedAndAssigned: 0,
   };
 
   let pageToken: string | undefined;

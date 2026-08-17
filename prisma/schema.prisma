@@ -181,7 +181,9 @@ model TicketMessage {
 
 model KnowledgeBaseEntry {
   id       String  @id @default(cuid())
-  title    String
+  /// @unique so prisma/seed.ts can upsert by title, the same idiom
+  /// it already uses for User.email.
+  title    String  @unique
   content  String
   category String?
 
