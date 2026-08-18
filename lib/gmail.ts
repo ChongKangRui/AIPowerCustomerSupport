@@ -47,11 +47,43 @@ async function getLastHistoryId(): Promise<string | null> {
   return state?.lastHistoryId ?? null;
 }
 
+// Multiple polls can now overlap for real — the client-side auto-sync
+// timer (components/gmail-auto-sync.tsx) means every open agent tab is
+// polling independently. A plain upsert is last-write-wins, so a slower
+// poll finishing after a faster one could stamp an older historyId back
+// over a newer one. This does two things a plain upsert doesn't, to stop
+// that:
 async function updateLastHistoryId(historyId: string): Promise<void> {
-  await prisma.emailSyncState.upsert({
-    where: { id: "gmail" },
-    update: { lastHistoryId: historyId },
-    create: { id: "gmail", lastHistoryId: historyId },
+  const current = await prisma.emailSyncState.findUnique({ where: { id: "gmail" } });
+
+  if (!current) {
+    // First-ever write (bootstrapHistoryId). Two overlapping bootstraps
+    // could both see "no row yet" — same P2002 backstop shape
+    // processMessage() already uses below, just for this row.
+    try {
+      await prisma.emailSyncState.create({ data: { id: "gmail", lastHistoryId: historyId } });
+    } catch (error) {
+      if (!isUniqueConstraintError(error)) throw error;
+    }
+    return;
+  }
+
+  // 1. Compare as BigInt, not string. Gmail's historyId is a numeric
+  // string that keeps growing digits over the mailbox's lifetime
+  // ("99" vs "100"), where a plain string compare would get the order
+  // wrong. Never write a value that isn't actually newer.
+  if (BigInt(historyId) <= BigInt(current.lastHistoryId)) return;
+
+  // 2. Pin the update to the exact value just read, not just the row's id.
+  // Two overlapping polls can both pass the BigInt check above off the
+  // same stale `current` — this `where` is what actually stops the
+  // watermark from regressing: if another poll already wrote a newer
+  // value in the gap between our read and this write, the row no longer
+  // matches "current.lastHistoryId" and this becomes a no-op instead of
+  // clobbering their newer value with this poll's stale one.
+  await prisma.emailSyncState.updateMany({
+    where: { id: "gmail", lastHistoryId: current.lastHistoryId },
+    data: { lastHistoryId: historyId },
   });
 }
 

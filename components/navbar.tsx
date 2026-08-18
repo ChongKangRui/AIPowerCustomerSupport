@@ -16,6 +16,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
+import { GmailAutoSync } from "@/components/gmail-auto-sync";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 import { useCurrentUser } from "@/hooks/use-current-user";
 import { apiClient } from "@/lib/api-client";
@@ -110,6 +111,7 @@ export function Navbar() {
       </div>
 
       <div className="flex items-center gap-2">
+        {user && <GmailAutoSync />}
         {user && <NotificationBell />}
 
         {isLoading ? null : user ? (

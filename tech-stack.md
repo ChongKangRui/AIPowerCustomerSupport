@@ -42,9 +42,12 @@
 
 ## Email
 - **Gmail API (`googleapis`)** — handles both inbound and outbound, against a dedicated demo Gmail account. Decided against Mailgun: Mailgun needs a domain with MX/TXT records, and a genuinely free subdomain with the DNS control Mailgun requires isn't realistically achievable (see setup guide below for why).
-  - Inbound: polling via `gmail.users.history.list` (incremental sync using a stored `historyId`), triggered externally.
+  - Inbound: polling via `gmail.users.history.list` (incremental sync using a stored `historyId`), on two triggers (see below).
   - Outbound: same Gmail account sends customer replies (Path A/B, threaded via `threadId`) **and** internal agent notification emails.
-  - Polling trigger: an external free scheduled-ping service (e.g. **cron-job.org**, free, down to 1-minute intervals) hits a secret-protected Next.js Route Handler (`/api/cron/poll-gmail`) on Vercel. This avoids deploying a separate always-on worker (Railway/Fly.io) — no second hosting target needed.
+  - Two polling triggers, layered:
+    - **Client-side, primary**: `components/gmail-auto-sync.tsx`, a non-rendering component mounted from `Navbar` on every logged-in page, calls the same `POST /api/gmail/poll` route on a 60s `setInterval` for as long as the app is open in a browser tab. This is what actually keeps an active session's inbox feeling live — same "no push infra, just poll" choice as notifications (see Notifications section below), just driving a mutation instead of a query.
+    - **External cron, backstop**: a free scheduled-ping service (e.g. **cron-job.org**) hits a secret-protected Next.js Route Handler (`/api/cron/poll-gmail`) on Vercel, on a much slower cadence (~15 min) than the client-side timer — it only matters when nobody has the app open at all, so there's no reason to pay for a fast interval there anymore. This still avoids deploying a separate always-on worker (Railway/Fly.io) — no second hosting target needed.
+  - Both triggers (plus the manual "Fetch Gmail" button, `hooks/use-sync-gmail.ts`) call the same `pollGmailAndCreateTickets()`, safe to overlap since it's watermarked by a stored `historyId` — see "historyId persistence" below.
 
 ## Testing
 - **Playwright** (`@playwright/test`) for e2e. Specs live under `e2e/` — auth coverage (login, logout, session/route-protection redirects, the `safeRedirectTarget` open-redirect guard, rate-limiter-inert-outside-production) written first via a dedicated `e2e-test-writer` subagent (`.claude/agents/e2e-test-writer.md`); use that subagent for any new/extended Playwright spec in this repo rather than writing one directly.

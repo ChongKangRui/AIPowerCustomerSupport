@@ -182,9 +182,12 @@ export function TicketsView() {
           <option value="RESOLVED">Resolved</option>
           <option value="CLOSED">Closed</option>
         </select>
-        {/* This is a manual stand-in for a fast cron cadence. It is mailbox-wide,
-            so it can create or update tickets other than whatever is on this
-            page, not just refresh the current filter. See hooks/use-sync-gmail.ts. */}
+        {/* components/gmail-auto-sync.tsx already polls every 60s in the
+            background (mounted from Navbar), so this button is just an
+            instant manual top-up for "I don't want to wait" — e.g. right
+            after sending a test email. It is mailbox-wide, so it can
+            create or update tickets other than whatever is on this page,
+            not just refresh the current filter. See hooks/use-sync-gmail.ts. */}
         <Button
           variant="outline"
           size="sm"
