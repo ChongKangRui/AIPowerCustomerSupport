@@ -170,12 +170,21 @@ export const bulkAssignTicketsSchema = z.object({
 
 export type BulkAssignTicketsInput = z.infer<typeof bulkAssignTicketsSchema>;
 
+// Shared cap for both schemas below. Exported so the reply Textarea can
+// use the same number for its `maxLength` — one constant, not a number
+// copy-pasted in two places that could quietly drift apart.
+//
+// 10,000 chars is generous for a support reply (a couple thousand words)
+// but stops a stray huge paste from becoming a giant outbound email and a
+// giant TicketMessage row.
+export const MAX_REPLY_BODY_LENGTH = 10_000;
+
 // This checks the request body for POST /api/tickets/[id]/reply.
 // This is an agent's outbound reply.
 // lib/gmail.ts's sendGmailReply() sends it as a real email, and the app stores it as an OUTBOUND/AGENT TicketMessage.
 // This is a mutation payload, so bad input returns a 400 error instead of falling back, like updateTicketStatusSchema above.
 export const sendTicketReplySchema = z.object({
-  body: z.string().trim().min(1),
+  body: z.string().trim().min(1).max(MAX_REPLY_BODY_LENGTH),
 });
 
 export type SendTicketReplyInput = z.infer<typeof sendTicketReplySchema>;
@@ -186,7 +195,7 @@ export type SendTicketReplyInput = z.infer<typeof sendTicketReplySchema>;
 // sendTicketReplySchema above, this is a mutation payload, so bad input
 // returns a 400 error instead of falling back.
 export const rephraseTicketReplySchema = z.object({
-  draft: z.string().trim().min(1),
+  draft: z.string().trim().min(1).max(MAX_REPLY_BODY_LENGTH),
 });
 
 export type RephraseTicketReplyInput = z.infer<typeof rephraseTicketReplySchema>;

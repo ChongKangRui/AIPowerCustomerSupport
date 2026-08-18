@@ -17,6 +17,7 @@ import { useAssignTicket } from "@/hooks/use-assign-ticket";
 import { useCurrentUser } from "@/hooks/use-current-user";
 import { useUsers } from "@/hooks/use-users";
 import { Role, TicketStatus } from "@/lib/generated/prisma/enums";
+import { MAX_REPLY_BODY_LENGTH } from "@/models/ticket.model";
 
 // This owns the ticket query and page-level orchestration for app/(main)/tickets/[id]/page.tsx.
 // It decides which sections show, and in what order.
@@ -107,6 +108,12 @@ export function TicketDetailView({ ticketId }: { ticketId: string }) {
               placeholder="Type a reply to the customer…"
               rows={4}
               aria-label="Reply to customer"
+              // Same cap the server enforces (models/ticket.model.ts).
+              // This just stops the agent from typing/pasting past it in
+              // the first place — the server-side check is still what
+              // actually matters, since this one's trivially bypassable
+              // by anyone calling the API directly.
+              maxLength={MAX_REPLY_BODY_LENGTH}
               // Disabled while a rephrase is streaming in, not while
               // sending — sendReply.isPending is a quick request, but
               // disabling the field the agent is looking at mid-send

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { google } from "googleapis";
 import type { gmail_v1 } from "googleapis";
+import sanitizeHtml from "sanitize-html";
 
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
@@ -157,18 +158,43 @@ function collectPartsByMimeType(
   return results;
 }
 
-// Prefers text/plain. If the MIME tree has no plain part anywhere, this
-// falls back to the raw text/html markup instead.
+// Generous cap on a stored message body — about 4-5k words. A customer's
+// actual new reply text is always near the top of the message (email
+// clients put new text first, quoted history after), so this basically
+// never cuts into real content — it only kicks in for the rare
+// pathological case (a forwarded thread, a pasted log dump).
 //
-// Storing raw HTML like that is a known limitation for now. It is fine
-// for this slice, but worth a second look once AI starts reading these
-// bodies.
+// The real reason this exists: Path A (lib/ai-auto-resolve.ts) stuffs the
+// full body into a Gemini prompt automatically, for every new ticket, with
+// no human in the loop. The free tier this app runs on caps out at TPM
+// 250k / RPD 20 (see HOW-IT-WORKS.md §8.3) — one unusually long email
+// could burn a real chunk of that on a single ticket. Truncating here
+// bounds that cost. This clamps and moves on rather than rejecting the
+// message outright — losing a customer's ticket over a long email would
+// be worse than the problem this is solving.
+const MAX_BODY_LENGTH = 20_000;
+
+// Prefers text/plain. If the MIME tree has no plain part anywhere, this
+// falls back to the text/html part instead.
+//
+// That HTML comes straight from the sender, so it's stripped down to
+// plain text with sanitize-html (allowedTags: [] — no tags survive at
+// all) before this function ever returns it. Everywhere in this app that
+// reads a message body assumes plain text: the UI renders it through
+// plain JSX interpolation, the AI auto-resolve prompt reads it as prose,
+// and outbound replies go out as text/plain. Storing raw HTML would sit
+// there inert only for as long as nothing ever renders it as HTML — the
+// first markdown renderer or dangerouslySetInnerHTML added later would
+// turn it into real stored XSS. Stripping it here, once, at the only
+// place Gmail content enters the app, means no future renderer has to
+// remember that assumption.
 function extractBodyText(payload: gmail_v1.Schema$MessagePart | undefined): string {
   const plainParts = collectPartsByMimeType(payload, "text/plain");
-  if (plainParts.length > 0) return plainParts.join("\n").trim();
+  if (plainParts.length > 0) return plainParts.join("\n").trim().slice(0, MAX_BODY_LENGTH);
 
   const htmlParts = collectPartsByMimeType(payload, "text/html");
-  return htmlParts.join("\n").trim();
+  const sanitized = htmlParts.map((html) => sanitizeHtml(html, { allowedTags: [], allowedAttributes: {} }));
+  return sanitized.join("\n").trim().slice(0, MAX_BODY_LENGTH);
 }
 
 // Email clients do not send just the new text in a reply. They
@@ -234,6 +260,13 @@ export function stripQuotedReply(bodyText: string): string {
   return lines.slice(0, cutoff).join("\n").trim() || bodyText.trim();
 }
 
+// Real subjects are rarely more than a couple hundred characters. This is
+// generous headroom, not a real-world limit — it just stops a
+// pathological header from also inflating the AI prompt (same reasoning
+// as MAX_BODY_LENGTH above) and from making an already-long "Re: ..."
+// outbound subject line unwieldy.
+const MAX_SUBJECT_LENGTH = 500;
+
 export function parseGmailMessage(message: gmail_v1.Schema$Message): ParsedGmailMessage {
   const headers = message.payload?.headers ?? [];
   const fromRaw = getHeader(headers, "From") ?? "";
@@ -245,7 +278,7 @@ export function parseGmailMessage(message: gmail_v1.Schema$Message): ParsedGmail
     threadId: message.threadId!,
     fromEmail,
     fromName,
-    subject: getHeader(headers, "Subject") ?? "(no subject)",
+    subject: (getHeader(headers, "Subject") ?? "(no subject)").slice(0, MAX_SUBJECT_LENGTH),
     bodyText: stripQuotedReply(extractBodyText(message.payload)),
     rfcMessageId: getHeader(headers, "Message-Id") ?? getHeader(headers, "Message-ID"),
     inReplyTo: getHeader(headers, "In-Reply-To"),
@@ -651,10 +684,18 @@ export async function sendGmailReply({
   const domain = gmailUser.split("@")[1] ?? "localhost";
   const rfcMessageId = `<${randomUUID()}@${domain}>`;
 
+  // `to` and `subject` both trace back to Gmail-sourced content (the
+  // customer's From/Subject headers), so they're untrusted here. A stray
+  // \r or \n inside either one would land inside this raw RFC822 header
+  // block and let the sender smuggle in an extra header line (e.g. a
+  // Bcc:) — classic SMTP header injection. Stripping CR/LF is the
+  // standard defense.
+  const stripHeaderInjection = (value: string) => value.replace(/[\r\n]+/g, " ");
+
   const headers = [
-    `To: ${to}`,
+    `To: ${stripHeaderInjection(to)}`,
     `From: ${gmailUser}`,
-    `Subject: ${subject}`,
+    `Subject: ${stripHeaderInjection(subject)}`,
     `Message-ID: ${rfcMessageId}`,
     "MIME-Version: 1.0",
     'Content-Type: text/plain; charset="UTF-8"',
