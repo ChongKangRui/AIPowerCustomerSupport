@@ -1,14 +1,32 @@
 import "dotenv/config";
 
+import bcrypt from "bcryptjs";
+
 import { prisma } from "../lib/prisma";
-import { MessageAuthorType, MessageDirection, TicketStatus } from "../lib/generated/prisma/enums";
+import { MessageAuthorType, MessageDirection, Role, TicketStatus } from "../lib/generated/prisma/enums";
 
 // Dev-only convenience seed — NOT part of `db:seed` / e2e's `prisma migrate
-// reset` flow (that's prisma/seed.ts, which only creates the two demo
-// users). This script adds 40 realistic-looking tickets on top of whatever
-// users already exist, so app/(main)/tickets/page.tsx has enough rows to
-// exercise search/filter/sort/pagination (TICKET_PAGE_SIZE = 20, so this
-// spans exactly two pages) by hand in the browser.
+// reset` flow (that's prisma/seed.ts, which only creates the one demo admin
+// and one demo agent). This script adds realistic-looking tickets on top of
+// whatever users already exist, so app/(main)/tickets/page.tsx has enough
+// rows to exercise search/filter/sort/pagination (TICKET_PAGE_SIZE = 20) by
+// hand in the browser, and so the Dashboard (Phase 6) has real month-over-
+// month data to chart instead of empty/flat bars.
+//
+// It also tops up the agent roster to 5 (the seeded demo agent from
+// prisma/seed.ts, plus 4 more created here) — a single agent makes for a
+// boring "Agent-Resolved" workload story, since every ticket would land on
+// the same person. The demo admin stays the only admin; this script never
+// creates another one.
+//
+// Tickets are spread across a MONTHS_BACK + MONTHS_FORWARD window (see
+// below) instead of the last few days, so the Dashboard's charts — which
+// bucket by calendar month — have several real bars to show, and so the
+// data stays useful for a while: the future months mean this doesn't all
+// read as "past" the day after you run it. Intended to be re-run whenever
+// local dev data goes stale, and later wired into a docker-compose dev
+// setup (see implementation-plan.md) so a fresh container gets this for
+// free.
 //
 // Run with: npm run db:seed:tickets
 // Safe to run more than once — each run uses its own runId so
@@ -16,6 +34,7 @@ import { MessageAuthorType, MessageDirection, TicketStatus } from "../lib/genera
 async function main() {
   const adminEmail = process.env.SEED_ADMIN_EMAIL ?? "admin@example.com";
   const agentEmail = process.env.SEED_AGENT_EMAIL ?? "agent@example.com";
+  const agentPassword = process.env.SEED_AGENT_PASSWORD ?? "agent1234";
 
   const [admin, agent] = await Promise.all([
     prisma.user.findUnique({ where: { email: adminEmail } }),
@@ -28,6 +47,34 @@ async function main() {
     );
   }
   const agentId = agent.id; // narrowed once here — TS can't see through the closure below
+
+  // 4 more agents beyond the primary demo one, so ticket assignment has
+  // somewhere to spread. These aren't tied to SEED_*_EMAIL env vars like
+  // the primary admin/agent are — they're just bulk demo accounts, not the
+  // login page's "Demo agent" quick-fill target. Upserted, same as
+  // prisma/seed.ts's admin/agent, so re-running this script never
+  // duplicates them.
+  const extraAgentSeeds = [
+    { email: "agent2@example.com", name: "Priya Shah" },
+    { email: "agent3@example.com", name: "Marcus Webb" },
+    { email: "agent4@example.com", name: "Lena Ortiz" },
+    { email: "agent5@example.com", name: "Devon Park" },
+  ];
+  const extraAgents = await Promise.all(
+    extraAgentSeeds.map(async ({ email, name }) =>
+      prisma.user.upsert({
+        where: { email },
+        update: { role: Role.AGENT },
+        create: { email, name, role: Role.AGENT, passwordHash: await bcrypt.hash(agentPassword, 10) },
+      })
+    )
+  );
+  // The primary demo agent first, so assigneeFor()'s bucket 0 (its most
+  // frequent bucket — see below) keeps favoring the account most people
+  // actually log in as.
+  const agentIds = [agentId, ...extraAgents.map((a) => a.id)];
+
+  console.log(`Seeded ${agentIds.length} agents (including the primary demo agent).`);
 
   const subjects = [
     "Can't log into my account",
@@ -120,17 +167,16 @@ async function main() {
   ];
 
   const runId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-  const now = Date.now();
 
-  // Rough assignment split across the 40 rows: enough go to `agent` that
-  // logging in as the seeded Agent (whose ticket list is scoped to
-  // assignedToId === self, per app/api/tickets/route.ts) actually has
-  // something to see, plus some to admin and some left unassigned.
+  // Rough assignment split, generalized from the original single-agent
+  // version to spread across all 5 agents: each of the 5 gets a roughly
+  // equal share, some go to admin, and the rest are left unassigned (a
+  // realistic live queue always has some backlog nobody's picked up yet).
   function assigneeFor(n: number): string | null {
-    const bucket = n % 5;
-    if (bucket === 0 || bucket === 1) return agentId; // 16/40
-    if (bucket === 2 && admin) return admin.id; // ~8/40
-    return null; // rest unassigned
+    const bucket = n % 8;
+    if (bucket < agentIds.length) return agentIds[bucket]; // 5/8
+    if (bucket === 5 && admin) return admin.id; // 1/8
+    return null; // 2/8 unassigned
   }
 
   // Builds this ticket's conversation thread — one inbound customer message
@@ -227,15 +273,50 @@ async function main() {
     });
   }
 
-  const rows = Array.from({ length: 40 }, (_, i) => {
-    const n = i + 1;
+  // MONTHS_BACK mirrors app/api/dashboard/charts/route.ts's own MONTHS_BACK
+  // — 6 calendar months, current month included — so the Dashboard's charts
+  // are populated for their entire window on first login, not just the
+  // tail end of it. MONTHS_FORWARD adds 3 more months ahead of "now": see
+  // this file's header comment for why seeding into the future is
+  // deliberate here, not a mistake.
+  const MONTHS_BACK = 6;
+  const MONTHS_FORWARD = 3;
+  const MIN_TICKETS_PER_MONTH = 10;
+  const MAX_TICKETS_PER_MONTH = 20;
+
+  const now = new Date();
+  const rangeStart = new Date(now.getFullYear(), now.getMonth() - (MONTHS_BACK - 1), 1);
+  const totalMonths = MONTHS_BACK + MONTHS_FORWARD;
+
+  // A uniformly random instant somewhere inside the given month — this is
+  // what gives each month's bar on the Dashboard's charts natural-looking
+  // variance instead of every ticket landing on the same day of the month.
+  function randomDateInMonth(monthStart: Date): Date {
+    const monthEnd = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 1);
+    return new Date(monthStart.getTime() + Math.random() * (monthEnd.getTime() - monthStart.getTime()));
+  }
+
+  // n counts up across the whole run (not reset per month), so the
+  // subject/status/name/etc. cycling below still gets full variety instead
+  // of repeating the same handful of combinations every month.
+  let n = 0;
+  const rows: ReturnType<typeof buildRow>[] = [];
+
+  function buildRow(createdAt: Date) {
+    n += 1;
+    const i = n - 1;
     const subject = subjects[i % subjects.length];
     const status = statusCycle[i % statusCycle.length];
     const name = `${firstNames[i % firstNames.length]} ${lastNames[i % lastNames.length]}`;
-    const createdAt = new Date(now - (40 - n) * 3 * 60 * 60 * 1000); // staggered 3h apart
     const assignedToId = assigneeFor(n);
     const customerName = n % 7 === 0 ? null : name; // a few with no name on file
-    const resolvedByAi = status === TicketStatus.RESOLVED && n % 3 === 0;
+    // status !== OPEN, not status === RESOLVED — a CLOSED ticket was
+    // resolved first (see app/api/tickets/[id]/route.ts's
+    // ALLOWED_TRANSITIONS), and it should be just as likely to have been an
+    // AI resolution as a RESOLVED ticket that hasn't been closed yet.
+    // Otherwise every CLOSED row would silently undercount "AI-Resolved" on
+    // the Dashboard.
+    const resolvedByAi = status !== TicketStatus.OPEN && n % 3 === 0;
 
     return {
       subject,
@@ -258,7 +339,17 @@ async function main() {
         ticketCreatedAt: createdAt,
       }),
     };
-  });
+  }
+
+  for (let m = 0; m < totalMonths; m++) {
+    const monthStart = new Date(rangeStart.getFullYear(), rangeStart.getMonth() + m, 1);
+    const ticketsThisMonth =
+      MIN_TICKETS_PER_MONTH + Math.floor(Math.random() * (MAX_TICKETS_PER_MONTH - MIN_TICKETS_PER_MONTH + 1));
+
+    for (let t = 0; t < ticketsThisMonth; t++) {
+      rows.push(buildRow(randomDateInMonth(monthStart)));
+    }
+  }
 
   // Nested writes (messages: { create: [...] }) instead of createMany, so
   // each ticket's thread is inserted alongside it — createMany has no
