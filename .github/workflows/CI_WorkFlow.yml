@@ -18,6 +18,15 @@ jobs:
   runTest:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Job-level, not per-step: every step in this job needs to resolve a DB
+    # connection string via lib/database-url.ts's resolveDatabaseUrl(), which
+    # throws without DB_PASSWORD — even "npm ci", since its postinstall hook
+    # runs `prisma generate`, which loads prisma.config.ts, which calls that
+    # same function. Setting it here once means every current AND future
+    # step in this job gets it automatically, instead of it being something
+    # you have to remember to add to each new step individually.
+    env:
+      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
     services:
       postgres:
         image: postgres:18
@@ -50,13 +59,10 @@ jobs:
 
       - name: Run unit test
         run: npm run test
-        env:
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
 
       - name: Run end to end test
         run: npm run test:e2e
         env:
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
           AUTH_SECRET: ${{ secrets.AUTH_SECRET }}
           AUTH_TRUST_HOST: "true"
 
