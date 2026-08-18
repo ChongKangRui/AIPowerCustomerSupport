@@ -102,6 +102,15 @@ export function Navbar() {
 
         {user?.role === Role.ADMIN && (
           <Link
+            href="/dashboard"
+            className="text-sm font-medium text-muted-foreground hover:text-foreground"
+          >
+            Dashboard
+          </Link>
+        )}
+
+        {user?.role === Role.ADMIN && (
+          <Link
             href="/users"
             className="text-sm font-medium text-muted-foreground hover:text-foreground"
           >

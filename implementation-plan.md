@@ -142,12 +142,12 @@ Goal: an agent knows when a ticket lands on their desk.
 _Lower priority — see note at top._
 Goal: the "Dashboard to view and manage all tickets" feature, with the agreed fallback path.
 
-- [ ] Baseline: ticket list/queue + basic counts (open/resolved/closed, AI-resolved vs human-resolved) — ship this first regardless
-- [ ] Decide charting library: Tremor vs shadcn/ui charts
-- [ ] Chart: resolution time
-- [ ] Chart: AI-resolved vs human-resolved rate over time
-- [ ] Chart: ticket volume trend
-- [ ] Checkpoint: if charts are eating too much time, stop at the baseline counts version — that satisfies the feature on its own
+- [x] Baseline: admin-only `/dashboard` page, six stat cards (active agents, inactive agents, total tickets resolved, agent-resolved, AI-resolved, avg tickets/month) — `app/(main)/dashboard/page.tsx` (admin gate, mirrors `app/(main)/users/page.tsx`) + `GET /api/dashboard/stats` (`app/api/dashboard/stats/route.ts`, six parallel `count`/`aggregate` queries — the first `aggregate` call in this codebase). `hooks/use-dashboard-stats.ts`, `components/dashboard/{dashboard-view,stat-card}.tsx`, admin-gated nav link in `components/navbar.tsx`. Uses shadcn's new `Card` primitive (`components/ui/card.tsx`, `npx shadcn add card`). "Total resolved" counts `Ticket.resolvedAt IS NOT NULL`, not `status: RESOLVED` — a ticket can go `OPEN → CLOSED` directly without ever being marked Resolved (see `ALLOWED_TRANSITIONS`), so `resolvedAt` is the only signal that's accurate regardless of current status.
+- [x] Decide charting library: **shadcn/ui charts** (Recharts-based `chart.tsx`) — matches the rest of the UI, smaller bundle than pulling in Tremor as a second component system. `npx shadcn add chart` (adds `recharts`, generates `components/ui/chart.tsx`).
+- [x] Chart: resolution time — `components/dashboard/resolution-time-chart.tsx`, a line chart of average hours between `createdAt`/`resolvedAt`, one point per month
+- [x] Chart: AI-resolved vs human-resolved rate over time — `components/dashboard/resolution-rate-chart.tsx`, a stacked bar chart (`aiResolved`/`agentResolved`) per month
+- [x] Chart: ticket volume trend — `components/dashboard/ticket-volume-chart.tsx`, a bar chart of tickets created per month
+- [x] Checkpoint: baseline shipped first as its own pass, charts followed in a second pass once there was time — all three built on `GET /api/dashboard/charts` (`app/api/dashboard/charts/route.ts`), a 6-month rolling window (`MONTHS_BACK`) bucketed in JS (no raw SQL anywhere in this app), consumed via `hooks/use-dashboard-charts.ts` and rendered in `components/dashboard/dashboard-view.tsx` below the stat cards
 
 ---
 
