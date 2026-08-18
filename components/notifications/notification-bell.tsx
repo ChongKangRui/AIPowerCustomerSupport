@@ -54,7 +54,7 @@ export function NotificationBell() {
     }
 
     for (const notification of notifications) {
-      if (!seenIds.current.has(notification.id)) {
+      if (!seenIds.current.has(notification.id) && notification.readAt === null) {
         seenIds.current.add(notification.id);
         toast(notification.message);
 

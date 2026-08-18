@@ -2,18 +2,8 @@
 
 import { useState } from "react";
 
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { ConfirmAlertDialog } from "@/components/ui/confirm-alert-dialog";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { TicketDetailHeader } from "@/components/tickets/ticket-detail-header";
@@ -154,75 +144,41 @@ export function TicketDetailView({ ticketId }: { ticketId: string }) {
           <div className="flex flex-col gap-3">
             <div className="flex gap-2">
               {ticket.status === TicketStatus.OPEN && (
-                <AlertDialog open={resolveDialogOpen} onOpenChange={handleResolveDialogChange}>
-                  <AlertDialogTrigger asChild>
+                <ConfirmAlertDialog
+                  open={resolveDialogOpen}
+                  onOpenChange={handleResolveDialogChange}
+                  trigger={
                     <Button variant="secondary" disabled={updateStatus.isPending}>
                       Mark Resolved
                     </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Mark this ticket resolved?</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        The customer gets an automated email saying so. If they reply, this
-                        ticket reopens automatically and their reply is treated as a signal of
-                        dissatisfaction.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-
-                    {updateStatus.error && (
-                      <p role="alert" className="text-sm text-destructive">
-                        {updateStatus.error.message}
-                      </p>
-                    )}
-
-                    <AlertDialogFooter>
-                      <AlertDialogCancel disabled={updateStatus.isPending}>Cancel</AlertDialogCancel>
-                      <AlertDialogAction disabled={updateStatus.isPending} onClick={handleResolve}>
-                        {updateStatus.isPending && updateStatus.variables === "RESOLVED"
-                          ? "Marking Resolved…"
-                          : "Mark ticket resolved"}
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
+                  }
+                  title="Mark this ticket resolved?"
+                  description="The customer gets an automated email saying so. If they reply, this ticket reopens automatically and their reply is treated as a signal of dissatisfaction."
+                  error={updateStatus.error?.message}
+                  pending={updateStatus.isPending && updateStatus.variables === "RESOLVED"}
+                  confirmLabel="Mark ticket resolved"
+                  pendingLabel="Marking Resolved…"
+                  onConfirm={handleResolve}
+                />
               )}
 
-              <AlertDialog open={closeDialogOpen} onOpenChange={handleCloseDialogChange}>
-                <AlertDialogTrigger asChild>
+              <ConfirmAlertDialog
+                open={closeDialogOpen}
+                onOpenChange={handleCloseDialogChange}
+                trigger={
                   <Button variant="destructive" disabled={updateStatus.isPending}>
                     Close
                   </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Close this ticket?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      This is permanent — a closed ticket can&rsquo;t be reopened. The customer
-                      gets an automated closing email and replies to it won&rsquo;t be monitored.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-
-                  {updateStatus.error && (
-                    <p role="alert" className="text-sm text-destructive">
-                      {updateStatus.error.message}
-                    </p>
-                  )}
-
-                  <AlertDialogFooter>
-                    <AlertDialogCancel disabled={updateStatus.isPending}>Cancel</AlertDialogCancel>
-                    <AlertDialogAction
-                      variant="destructive"
-                      disabled={updateStatus.isPending}
-                      onClick={handleClose}
-                    >
-                      {updateStatus.isPending && updateStatus.variables === "CLOSED"
-                        ? "Closing…"
-                        : "Close ticket"}
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
+                }
+                title="Close this ticket?"
+                description="This is permanent — a closed ticket can&rsquo;t be reopened. The customer gets an automated closing email and replies to it won&rsquo;t be monitored."
+                error={updateStatus.error?.message}
+                pending={updateStatus.isPending && updateStatus.variables === "CLOSED"}
+                confirmLabel="Close ticket"
+                pendingLabel="Closing…"
+                actionVariant="destructive"
+                onConfirm={handleClose}
+              />
             </div>
           </div>
         </>

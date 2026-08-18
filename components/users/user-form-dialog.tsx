@@ -1,9 +1,10 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Controller, useForm } from "react-hook-form";
+import { useForm } from "react-hook-form";
 
 import { Button } from "@/components/ui/button";
+import { ControlledField } from "@/components/ui/controlled-field";
 import {
   Dialog,
   DialogContent,
@@ -13,8 +14,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
+import { FieldGroup } from "@/components/ui/field";
 import { useCreateUser } from "@/hooks/use-create-user";
 import { useUpdateUser } from "@/hooks/use-update-user";
 import { createUserSchema, updateUserSchema } from "@/models/user.model";
@@ -108,62 +108,29 @@ export function UserFormDialog({ open, onOpenChange, trigger, user }: UserFormDi
           </DialogHeader>
 
           <FieldGroup className="py-4">
-            <Controller
+            <ControlledField
               name="name"
               control={form.control}
-              render={({ field, fieldState }) => (
-                <Field data-invalid={fieldState.invalid}>
-                  <FieldLabel htmlFor={field.name}>Name</FieldLabel>
-                  <Input
-                    {...field}
-                    id={field.name}
-                    autoComplete="off"
-                    aria-invalid={fieldState.invalid}
-                    placeholder="Ada Lovelace"
-                  />
-                  {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-                </Field>
-              )}
+              label="Name"
+              inputProps={{ autoComplete: "off", placeholder: "Ada Lovelace" }}
             />
 
-            <Controller
+            <ControlledField
               name="email"
               control={form.control}
-              render={({ field, fieldState }) => (
-                <Field data-invalid={fieldState.invalid}>
-                  <FieldLabel htmlFor={field.name}>Email</FieldLabel>
-                  <Input
-                    {...field}
-                    id={field.name}
-                    type="email"
-                    autoComplete="off"
-                    aria-invalid={fieldState.invalid}
-                    placeholder="you@example.com"
-                  />
-                  {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-                </Field>
-              )}
+              label="Email"
+              inputProps={{ type: "email", autoComplete: "off", placeholder: "you@example.com" }}
             />
 
-            <Controller
+            <ControlledField
               name="password"
               control={form.control}
-              render={({ field, fieldState }) => (
-                <Field data-invalid={fieldState.invalid}>
-                  <FieldLabel htmlFor={field.name}>
-                    {isEdit ? "New password" : "Password"}
-                  </FieldLabel>
-                  <Input
-                    {...field}
-                    id={field.name}
-                    type="password"
-                    autoComplete="new-password"
-                    aria-invalid={fieldState.invalid}
-                    placeholder={isEdit ? "Leave blank to keep current password" : undefined}
-                  />
-                  {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-                </Field>
-              )}
+              label={isEdit ? "New password" : "Password"}
+              inputProps={{
+                type: "password",
+                autoComplete: "new-password",
+                placeholder: isEdit ? "Leave blank to keep current password" : undefined,
+              }}
             />
 
             {mutation.error && (

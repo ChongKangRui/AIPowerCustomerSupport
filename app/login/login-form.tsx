@@ -5,17 +5,11 @@ import { useEffect } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Controller, useForm } from "react-hook-form";
+import { useForm } from "react-hook-form";
 
 import { Button } from "@/components/ui/button";
-import {
-  Field,
-  FieldError,
-  FieldGroup,
-  FieldLabel,
-  FieldSeparator,
-} from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
+import { ControlledField } from "@/components/ui/controlled-field";
+import { FieldGroup } from "@/components/ui/field";
 import { useCurrentUser } from "@/hooks/use-current-user";
 import { apiClient } from "@/lib/api-client";
 import { safeRedirectTarget } from "@/lib/safe-redirect";
@@ -125,41 +119,18 @@ export function LoginForm({ demoAccounts }: { demoAccounts: readonly DemoAccount
             </p>
           </div>
 
-          <Controller
+          <ControlledField
             name="email"
             control={form.control}
-            render={({ field, fieldState }) => (
-              <Field data-invalid={fieldState.invalid}>
-                <FieldLabel htmlFor={field.name}>Email</FieldLabel>
-                <Input
-                  {...field}
-                  id={field.name}
-                  type="email"
-                  autoComplete="email"
-                  aria-invalid={fieldState.invalid}
-                  placeholder="you@example.com"
-                />
-                {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-              </Field>
-            )}
+            label="Email"
+            inputProps={{ type: "email", autoComplete: "email", placeholder: "you@example.com" }}
           />
 
-          <Controller
+          <ControlledField
             name="password"
             control={form.control}
-            render={({ field, fieldState }) => (
-              <Field data-invalid={fieldState.invalid}>
-                <FieldLabel htmlFor={field.name}>Password</FieldLabel>
-                <Input
-                  {...field}
-                  id={field.name}
-                  type="password"
-                  autoComplete="current-password"
-                  aria-invalid={fieldState.invalid}
-                />
-                {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-              </Field>
-            )}
+            label="Password"
+            inputProps={{ type: "password", autoComplete: "current-password" }}
           />
 
           {loginMutation.isError && (
