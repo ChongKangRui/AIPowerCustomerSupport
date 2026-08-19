@@ -1,0 +1,15 @@
+FROM node:24-alpine
+WORKDIR /app
+# satisfy node-gyp uses to compile native C/C++ addons during npm install
+RUN apk add --no-cache python3 make g++
+COPY package.json package-lock.json ./
+COPY prisma ./prisma
+COPY prisma.config.ts ./
+COPY lib/database-url.ts ./lib/database-url.ts
+# DATABASE_URL here is a fake, non-routable placeholder — 
+# generate never connects to it, it just needs something to stop resolveDatabaseUrl() from throwing. 
+# At container runtime, env_file: .env overrides this
+ARG DATABASE_URL=postgresql://placeholder:placeholder@localhost:5432/placeholder
+RUN npm install
+
+COPY . .

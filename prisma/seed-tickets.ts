@@ -19,12 +19,13 @@ import { MessageAuthorType, MessageDirection, Role, TicketStatus } from "../lib/
 // the same person. The demo admin stays the only admin; this script never
 // creates another one.
 //
-// Tickets are spread across a MONTHS_BACK + MONTHS_FORWARD window (see
-// below) instead of the last few days, so the Dashboard's charts — which
-// bucket by calendar month — have several real bars to show, and so the
-// data stays useful for a while: the future months mean this doesn't all
-// read as "past" the day after you run it. Intended to be re-run whenever
-// local dev data goes stale, and later wired into a docker-compose dev
+// Tickets are spread across a MONTHS_BACK window (see below) instead of the
+// last few days, so the Dashboard's charts — which bucket by calendar month
+// — have several real bars to show. Every date lands between MONTHS_BACK
+// months ago and right now — nothing in the future, since these are meant
+// to look like tickets that already happened. Intended to be re-run
+// whenever local dev data goes stale (each run only adds more, so re-run
+// it as often as you like), and later wired into a docker-compose dev
 // setup (see implementation-plan.md) so a fresh container gets this for
 // free.
 //
@@ -276,24 +277,25 @@ async function main() {
   // MONTHS_BACK mirrors app/api/dashboard/charts/route.ts's own MONTHS_BACK
   // — 6 calendar months, current month included — so the Dashboard's charts
   // are populated for their entire window on first login, not just the
-  // tail end of it. MONTHS_FORWARD adds 3 more months ahead of "now": see
-  // this file's header comment for why seeding into the future is
-  // deliberate here, not a mistake.
+  // tail end of it.
   const MONTHS_BACK = 6;
-  const MONTHS_FORWARD = 3;
   const MIN_TICKETS_PER_MONTH = 10;
   const MAX_TICKETS_PER_MONTH = 20;
 
   const now = new Date();
   const rangeStart = new Date(now.getFullYear(), now.getMonth() - (MONTHS_BACK - 1), 1);
-  const totalMonths = MONTHS_BACK + MONTHS_FORWARD;
 
   // A uniformly random instant somewhere inside the given month — this is
   // what gives each month's bar on the Dashboard's charts natural-looking
   // variance instead of every ticket landing on the same day of the month.
-  function randomDateInMonth(monthStart: Date): Date {
+  //
+  // `cap` clips the top of that range to "now" — needed for the current
+  // month, since its natural month-end is still in the future and every
+  // ticket here is meant to look like something that already happened.
+  function randomDateInMonth(monthStart: Date, cap: Date): Date {
     const monthEnd = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 1);
-    return new Date(monthStart.getTime() + Math.random() * (monthEnd.getTime() - monthStart.getTime()));
+    const rangeEnd = Math.min(monthEnd.getTime(), cap.getTime());
+    return new Date(monthStart.getTime() + Math.random() * (rangeEnd - monthStart.getTime()));
   }
 
   // n counts up across the whole run (not reset per month), so the
@@ -341,13 +343,13 @@ async function main() {
     };
   }
 
-  for (let m = 0; m < totalMonths; m++) {
+  for (let m = 0; m < MONTHS_BACK; m++) {
     const monthStart = new Date(rangeStart.getFullYear(), rangeStart.getMonth() + m, 1);
     const ticketsThisMonth =
       MIN_TICKETS_PER_MONTH + Math.floor(Math.random() * (MAX_TICKETS_PER_MONTH - MIN_TICKETS_PER_MONTH + 1));
 
     for (let t = 0; t < ticketsThisMonth; t++) {
-      rows.push(buildRow(randomDateInMonth(monthStart)));
+      rows.push(buildRow(randomDateInMonth(monthStart, now)));
     }
   }
 

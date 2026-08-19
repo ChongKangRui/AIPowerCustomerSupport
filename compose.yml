@@ -1,0 +1,41 @@
+services:
+  db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: CustomerSupportDB
+    ports:
+      - "5433:5432"
+    volumes:
+      - db-data:/var/lib/postgresql
+   
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    command: sh -c "npm run db:generate && npm run db:deploy && npm run db:seed && npm run dev"
+    env_file:
+      - .env
+    environment:
+      DB_HOST: db
+      DB_USER: postgres
+      DB_PORT: 5432
+      DB_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app
+      - /app/node_modules
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  db-data:

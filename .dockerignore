@@ -1,0 +1,7 @@
+node_modules
+.next
+.next-test
+.git
+.env
+.env.example
+tsconfig.tsbuildinfo
