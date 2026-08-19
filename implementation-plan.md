@@ -68,8 +68,8 @@ Goal: real emails become tickets in the DB, and the app can reply back into the 
 - [x] Route Handler `app/api/cron/poll-gmail/route.ts` — checks `Authorization: Bearer $CRON_SECRET`, calls `pollGmailAndCreateTickets()`
 - [x] Manual "Fetch Gmail" button on the tickets list toolbar (`components/tickets/tickets-view.tsx`), any authenticated user, hitting a new session-authenticated `POST /api/gmail/poll` route (`hooks/use-sync-gmail.ts`) that calls the same `pollGmailAndCreateTickets()`
 - [x] Client-side auto-poll: `components/gmail-auto-sync.tsx`, mounted from `Navbar` on every logged-in page, calls the same `POST /api/gmail/poll` route on a 60s `setInterval` (fires once immediately on mount, too). This is now the fast path — see tech-stack.md's Email section — so the manual button above is just an instant top-up, not the primary trigger anymore.
-- [ ] Register a free scheduled job on cron-job.org hitting the deployed poll endpoint every ~15 min, now just a backstop for when nobody has the app open (see tech-stack.md)
-- [ ] End-to-end test: send a real email to the demo inbox → confirm a `Ticket` is created; send a reply from the app → confirm it appears threaded in Gmail (read half spot-checked manually via `gmail:poll`; send half now buildable via the app's Reply box, but still needs a real-inbox spot-check)
+- [x] Register a free scheduled job on cron-job.org hitting the deployed poll endpoint every ~15 min, now just a backstop for when nobody has the app open (see tech-stack.md)
+- [x] End-to-end test: send a real email to the demo inbox → confirm a `Ticket` is created; send a reply from the app → confirm it appears threaded in Gmail (read half spot-checked manually via `gmail:poll`; send half now buildable via the app's Reply box, but still needs a real-inbox spot-check)
 
 ---
 
